@@ -27,6 +27,9 @@ class CategoryAdmin(MPTTModelAdmin):
 
 @admin.register(Brand)
 class BrandAdmin(admin.ModelAdmin):
+    list_display = ('name', 'slug', 'is_active')
+    list_filter = ('is_active',)
+    search_fields = ('name', 'slug')
     prepopulated_fields = {'slug': ('name',)}
 
 admin.site.register(Color)

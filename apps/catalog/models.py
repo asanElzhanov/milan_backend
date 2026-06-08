@@ -56,7 +56,9 @@ class Brand(models.Model):
     name = models.CharField(_('название'), max_length=100, unique=True)
     slug = models.SlugField(max_length=120, unique=True)
     logo = models.ImageField(_('лого'), upload_to='brands/', blank=True, null=True)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(_('активен'), default=True)
+    created_at = models.DateTimeField(_('создан'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('обновлен'), auto_now=True)
 
     class Meta:
         verbose_name = _('бренд')
@@ -65,6 +67,11 @@ class Brand(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name, allow_unicode=True)
+        super().save(*args, **kwargs)
 
 
 class Product(models.Model):

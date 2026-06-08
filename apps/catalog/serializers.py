@@ -32,7 +32,7 @@ class CategoryTreeSerializer(CategorySerializer):
 class BrandSerializer(serializers.ModelSerializer):
     class Meta:
         model = Brand
-        fields = ('id', 'name', 'slug', 'logo')
+        fields = ('id', 'name', 'slug', 'logo', 'is_active')
 
 
 class ColorSerializer(serializers.ModelSerializer):

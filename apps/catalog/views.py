@@ -74,10 +74,26 @@ class CategoryDetailView(CategoryQuerysetMixin, generics.RetrieveAPIView):
 
 
 class BrandListView(generics.ListAPIView):
-    """GET /catalog/brands/"""
+    """GET /catalog/brands/?active=true"""
     serializer_class = BrandSerializer
     permission_classes = [permissions.AllowAny]
-    queryset = Brand.objects.filter(is_active=True)
+
+    def get_queryset(self):
+        queryset = Brand.objects.all()
+        active = _parse_bool(self.request.query_params.get('active'))
+        if active is True:
+            queryset = queryset.filter(is_active=True)
+        elif active is False:
+            queryset = queryset.filter(is_active=False)
+        return queryset.order_by('name')
+
+
+class BrandDetailView(generics.RetrieveAPIView):
+    """GET /catalog/brands/<slug>/"""
+    serializer_class = BrandSerializer
+    permission_classes = [permissions.AllowAny]
+    lookup_field = 'slug'
+    queryset = Brand.objects.all()
 
 
 class ProductListView(generics.ListAPIView):
