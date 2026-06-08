@@ -10,11 +10,16 @@ class CategorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Category
-        fields = ('id', 'name', 'slug', 'image', 'description', 'children')
+        fields = (
+            'id', 'name', 'slug', 'parent', 'image', 'description',
+            'is_active', 'sort_order', 'seo_title', 'seo_description',
+            'seo_keywords', 'created_at', 'updated_at', 'children',
+        )
+        read_only_fields = ('created_at', 'updated_at')
 
     def get_children(self, obj):
         if obj.children.exists():
-            return CategorySerializer(obj.children.filter(is_active=True), many=True).data
+            return CategorySerializer(obj.children.active(), many=True).data
         return []
 
 

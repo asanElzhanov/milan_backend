@@ -1,4 +1,5 @@
 from django.contrib import admin
+from mptt.admin import MPTTModelAdmin
 from .models import Category, Brand, Product, ProductImage, ProductVariant, Color, Size, Review, Banner, Promo
 
 @admin.register(Product)
@@ -18,7 +19,10 @@ class ProductVariantInline(admin.TabularInline):
     extra = 1
 
 @admin.register(Category)
-class CategoryAdmin(admin.ModelAdmin):
+class CategoryAdmin(MPTTModelAdmin):
+    list_display = ('name', 'slug', 'parent', 'is_active', 'sort_order')
+    list_filter = ('is_active',)
+    search_fields = ('name', 'slug')
     prepopulated_fields = {'slug': ('name',)}
 
 @admin.register(Brand)

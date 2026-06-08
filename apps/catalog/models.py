@@ -2,8 +2,17 @@ from django.db import models
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django.core.validators import MinValueValidator, MaxValueValidator
+from mptt.managers import TreeManager
 from mptt.models import MPTTModel, TreeForeignKey
-import uuid
+
+
+class CategoryQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(is_active=True)
+
+
+class CategoryManager(TreeManager.from_queryset(CategoryQuerySet)):
+    pass
 
 
 class Category(MPTTModel):
@@ -18,8 +27,13 @@ class Category(MPTTModel):
     description = models.TextField(_('описание'), blank=True)
     is_active = models.BooleanField(_('активна'), default=True)
     sort_order = models.PositiveSmallIntegerField(_('порядок'), default=0)
-    meta_title = models.CharField(max_length=200, blank=True)
-    meta_description = models.TextField(blank=True)
+    seo_title = models.CharField(_('SEO title'), max_length=200, blank=True)
+    seo_description = models.TextField(_('SEO description'), blank=True)
+    seo_keywords = models.CharField(_('SEO keywords'), max_length=255, blank=True)
+    created_at = models.DateTimeField(_('создана'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('обновлена'), auto_now=True)
+
+    objects = CategoryManager()
 
     class MPTTMeta:
         order_insertion_by = ['sort_order', 'name']
@@ -27,6 +41,7 @@ class Category(MPTTModel):
     class Meta:
         verbose_name = _('категория')
         verbose_name_plural = _('категории')
+        ordering = ['sort_order', 'name']
 
     def __str__(self):
         return self.name

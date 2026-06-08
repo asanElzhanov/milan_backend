@@ -21,7 +21,7 @@ class CategoryListView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        return Category.objects.filter(is_active=True, level=0).prefetch_related('children')
+        return Category.objects.active().filter(level=0).prefetch_related('children')
 
 
 class BrandListView(generics.ListAPIView):
