@@ -38,7 +38,7 @@ class BrandSerializer(serializers.ModelSerializer):
 class ColorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Color
-        fields = ('id', 'name', 'hex_code')
+        fields = ('id', 'name', 'slug', 'hex_code', 'is_active')
 
 
 class SizeSerializer(serializers.ModelSerializer):

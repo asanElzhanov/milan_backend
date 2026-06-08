@@ -32,7 +32,14 @@ class BrandAdmin(admin.ModelAdmin):
     search_fields = ('name', 'slug')
     prepopulated_fields = {'slug': ('name',)}
 
-admin.site.register(Color)
+@admin.register(Color)
+class ColorAdmin(admin.ModelAdmin):
+    list_display = ('name', 'slug', 'hex_code', 'is_active')
+    list_filter = ('is_active',)
+    search_fields = ('name', 'slug', 'hex_code')
+    prepopulated_fields = {'slug': ('name',)}
+
+
 admin.site.register(Size)
 admin.site.register(Review)
 admin.site.register(Banner)

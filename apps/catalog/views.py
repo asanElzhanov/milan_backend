@@ -5,9 +5,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
 from django.utils import timezone
 
-from .models import Category, Brand, Product, Review, Banner, Promo
+from .models import Category, Brand, Color, Product, Review, Banner, Promo
 from .serializers import (
-    CategorySerializer, CategoryTreeSerializer, BrandSerializer,
+    CategorySerializer, CategoryTreeSerializer, BrandSerializer, ColorSerializer,
     ProductListSerializer, ProductDetailSerializer,
     ReviewSerializer, ReviewCreateSerializer,
     BannerSerializer, PromoCheckSerializer,
@@ -94,6 +94,21 @@ class BrandDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.AllowAny]
     lookup_field = 'slug'
     queryset = Brand.objects.all()
+
+
+class ColorListView(generics.ListAPIView):
+    """GET /catalog/colors/?active=true"""
+    serializer_class = ColorSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        queryset = Color.objects.all()
+        active = _parse_bool(self.request.query_params.get('active'))
+        if active is True:
+            queryset = queryset.filter(is_active=True)
+        elif active is False:
+            queryset = queryset.filter(is_active=False)
+        return queryset.order_by('name')
 
 
 class ProductListView(generics.ListAPIView):

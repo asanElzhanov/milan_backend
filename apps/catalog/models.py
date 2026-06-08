@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
-from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from mptt.managers import TreeManager
 from mptt.models import MPTTModel, TreeForeignKey
 
@@ -173,13 +173,33 @@ class ProductVideo(models.Model):
 
 class Color(models.Model):
     name = models.CharField(_('название'), max_length=50)
-    hex_code = models.CharField(_('hex'), max_length=7)
+    slug = models.SlugField(max_length=80, unique=True)
+    hex_code = models.CharField(
+        _('hex'),
+        max_length=7,
+        validators=[
+            RegexValidator(
+                regex=r'^#[0-9A-Fa-f]{6}$',
+                message=_('Введите HEX-цвет в формате #FFFFFF.'),
+            ),
+        ],
+    )
+    is_active = models.BooleanField(_('активен'), default=True)
+    created_at = models.DateTimeField(_('создан'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('обновлен'), auto_now=True)
 
     class Meta:
         verbose_name = _('цвет')
+        verbose_name_plural = _('цвета')
+        ordering = ['name']
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name, allow_unicode=True)
+        super().save(*args, **kwargs)
 
 
 class Size(models.Model):
