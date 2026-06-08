@@ -52,13 +52,9 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             'id', 'email', 'phone', 'first_name', 'last_name',
-            'full_name', 'avatar', 'role', 'is_verified',
-            'is_email_verified', 'date_joined'
+            'full_name', 'role', 'is_verified',
         )
-        read_only_fields = (
-            'id', 'email', 'role', 'is_verified',
-            'is_email_verified', 'date_joined'
-        )
+        read_only_fields = ('id', 'email', 'role', 'is_verified')
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):

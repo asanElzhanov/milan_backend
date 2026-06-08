@@ -24,8 +24,13 @@ class ProfileAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['email'], self.user.email)
         self.assertEqual(response.data['role'], User.Role.CUSTOMER)
-        self.assertIn('full_name', response.data)
-        self.assertIn('is_verified', response.data)
+        self.assertEqual(
+            set(response.data.keys()),
+            {
+                'id', 'email', 'phone', 'first_name', 'last_name',
+                'full_name', 'role', 'is_verified',
+            },
+        )
 
     def test_anonymous_user_cannot_get_profile(self):
         response = self.client.get(self.url)

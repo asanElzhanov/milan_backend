@@ -22,6 +22,16 @@ class ObjectWithOwner:
         self.owner = owner
 
 
+class ObjectWithCustomer:
+    def __init__(self, customer):
+        self.customer = customer
+
+
+class ObjectWithSameId:
+    def __init__(self, object_id):
+        self.id = object_id
+
+
 class ObjectWithoutOwner:
     pass
 
@@ -63,10 +73,12 @@ class PermissionTests(TestCase):
         self.assertTrue(IsCustomer().has_permission(request, None))
         self.assertFalse(IsManager().has_permission(request, None))
         self.assertFalse(IsAdminRole().has_permission(request, None))
+        self.assertFalse(IsManagerOrAdmin().has_permission(request, None))
 
     def test_manager_permissions(self):
         request = self.request_for(self.manager)
 
+        self.assertFalse(IsCustomer().has_permission(request, None))
         self.assertTrue(IsManager().has_permission(request, None))
         self.assertTrue(IsManagerOrAdmin().has_permission(request, None))
 
@@ -89,6 +101,8 @@ class PermissionTests(TestCase):
         self.assertTrue(permission.has_object_permission(request, None, self.customer))
         self.assertTrue(permission.has_object_permission(request, None, ObjectWithUser(self.customer)))
         self.assertTrue(permission.has_object_permission(request, None, ObjectWithOwner(self.customer)))
+        self.assertTrue(permission.has_object_permission(request, None, ObjectWithCustomer(self.customer)))
+        self.assertTrue(permission.has_object_permission(request, None, ObjectWithSameId(self.customer.id)))
 
     def test_other_customer_cannot_access_foreign_object(self):
         permission = IsOwnerOrManagerOrAdmin()
@@ -96,6 +110,8 @@ class PermissionTests(TestCase):
 
         self.assertFalse(permission.has_object_permission(request, None, ObjectWithUser(self.customer)))
         self.assertFalse(permission.has_object_permission(request, None, ObjectWithOwner(self.customer)))
+        self.assertFalse(permission.has_object_permission(request, None, ObjectWithCustomer(self.customer)))
+        self.assertFalse(permission.has_object_permission(request, None, ObjectWithSameId(self.customer.id)))
         self.assertFalse(permission.has_object_permission(request, None, ObjectWithoutOwner()))
 
     def test_manager_admin_superuser_can_access_object(self):

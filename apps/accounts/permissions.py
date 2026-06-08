@@ -53,8 +53,9 @@ class IsOwnerOrManagerOrAdmin(permissions.BasePermission):
             return True
         if obj == user:
             return True
-        owner = getattr(obj, 'user', None)
-        if owner == user:
+        if getattr(obj, 'id', None) == getattr(user, 'id', None):
             return True
-        owner = getattr(obj, 'owner', None)
-        return owner == user
+        for owner_field in ('user', 'customer', 'owner'):
+            if getattr(obj, owner_field, None) == user:
+                return True
+        return False
