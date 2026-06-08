@@ -204,15 +204,28 @@ class Color(models.Model):
 
 class Size(models.Model):
     """Размер (EUR числовые или буквенные S/M/L)"""
-    value = models.CharField(_('значение'), max_length=10)  # "37", "38.5", "M"
+    class SizeType(models.TextChoices):
+        SHOES = 'shoes', _('Обувь')
+        CLOTHES = 'clothes', _('Одежда')
+        ACCESSORIES = 'accessories', _('Аксессуары')
+
+    value = models.CharField(_('значение'), max_length=20)  # "37", "38.5", "M", "One Size"
+    size_type = models.CharField(_('тип размера'), max_length=20, choices=SizeType.choices)
     sort_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(_('активен'), default=True)
+    created_at = models.DateTimeField(_('создан'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('обновлен'), auto_now=True)
 
     class Meta:
         verbose_name = _('размер')
-        ordering = ['sort_order', 'value']
+        verbose_name_plural = _('размеры')
+        ordering = ['size_type', 'sort_order', 'value']
+        constraints = [
+            models.UniqueConstraint(fields=['value', 'size_type'], name='unique_size_value_type'),
+        ]
 
     def __str__(self):
-        return self.value
+        return f'{self.size_type}: {self.value}'
 
 
 class ProductVariant(models.Model):

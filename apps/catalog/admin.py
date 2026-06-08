@@ -40,7 +40,14 @@ class ColorAdmin(admin.ModelAdmin):
     prepopulated_fields = {'slug': ('name',)}
 
 
-admin.site.register(Size)
+@admin.register(Size)
+class SizeAdmin(admin.ModelAdmin):
+    list_display = ('value', 'size_type', 'sort_order', 'is_active')
+    list_filter = ('size_type', 'is_active')
+    search_fields = ('value',)
+    list_editable = ('sort_order', 'is_active')
+
+
 admin.site.register(Review)
 admin.site.register(Banner)
 admin.site.register(Promo)

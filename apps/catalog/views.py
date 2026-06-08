@@ -5,9 +5,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
 from django.utils import timezone
 
-from .models import Category, Brand, Color, Product, Review, Banner, Promo
+from .models import Category, Brand, Color, Product, Review, Banner, Promo, Size
 from .serializers import (
-    CategorySerializer, CategoryTreeSerializer, BrandSerializer, ColorSerializer,
+    CategorySerializer, CategoryTreeSerializer, BrandSerializer, ColorSerializer, SizeSerializer,
     ProductListSerializer, ProductDetailSerializer,
     ReviewSerializer, ReviewCreateSerializer,
     BannerSerializer, PromoCheckSerializer,
@@ -109,6 +109,26 @@ class ColorListView(generics.ListAPIView):
         elif active is False:
             queryset = queryset.filter(is_active=False)
         return queryset.order_by('name')
+
+
+class SizeListView(generics.ListAPIView):
+    """GET /catalog/sizes/?active=true&size_type=shoes"""
+    serializer_class = SizeSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        queryset = Size.objects.all()
+        active = _parse_bool(self.request.query_params.get('active'))
+        if active is True:
+            queryset = queryset.filter(is_active=True)
+        elif active is False:
+            queryset = queryset.filter(is_active=False)
+
+        size_type = self.request.query_params.get('size_type')
+        if size_type:
+            queryset = queryset.filter(size_type=size_type)
+
+        return queryset.order_by('size_type', 'sort_order', 'value')
 
 
 class ProductListView(generics.ListAPIView):

@@ -8,6 +8,7 @@ urlpatterns = [
     path('brands/', views.BrandListView.as_view(), name='brands'),
     path('brands/<slug:slug>/', views.BrandDetailView.as_view(), name='brand-detail'),
     path('colors/', views.ColorListView.as_view(), name='colors'),
+    path('sizes/', views.SizeListView.as_view(), name='sizes'),
 
     path('products/', views.ProductListView.as_view(), name='product-list'),
     path('products/<slug:slug>/', views.ProductDetailView.as_view(), name='product-detail'),
