@@ -1,11 +1,12 @@
-from rest_framework import generics, filters, status, permissions
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from django_filters.rest_framework import DjangoFilterBackend
+from django.db import models
 from django.db.models import F
 from django.utils import timezone
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters, generics, permissions
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from .models import Category, Brand, Color, Product, Review, Banner, Promo, Size
+from .models import Banner, Brand, Category, Color, Product, Promo, Review, Size
 from .serializers import (
     CategorySerializer, CategoryTreeSerializer, BrandSerializer, ColorSerializer, SizeSerializer,
     ProductListSerializer, ProductDetailSerializer,
@@ -46,6 +47,16 @@ class CategoryQuerysetMixin:
         return queryset.order_by('tree_id', 'lft')
 
 
+class ActiveFilterMixin:
+    def filter_by_active(self, queryset):
+        active = _parse_bool(self.request.query_params.get('active'))
+        if active is True:
+            return queryset.filter(is_active=True)
+        if active is False:
+            return queryset.filter(is_active=False)
+        return queryset
+
+
 class CategoryListView(CategoryQuerysetMixin, generics.ListAPIView):
     """GET /catalog/categories/?active=true&parent=1 — плоский список категорий"""
     serializer_class = CategorySerializer
@@ -73,18 +84,13 @@ class CategoryDetailView(CategoryQuerysetMixin, generics.RetrieveAPIView):
     lookup_field = 'slug'
 
 
-class BrandListView(generics.ListAPIView):
+class BrandListView(ActiveFilterMixin, generics.ListAPIView):
     """GET /catalog/brands/?active=true"""
     serializer_class = BrandSerializer
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        queryset = Brand.objects.all()
-        active = _parse_bool(self.request.query_params.get('active'))
-        if active is True:
-            queryset = queryset.filter(is_active=True)
-        elif active is False:
-            queryset = queryset.filter(is_active=False)
+        queryset = self.filter_by_active(Brand.objects.all())
         return queryset.order_by('name')
 
 
@@ -96,33 +102,23 @@ class BrandDetailView(generics.RetrieveAPIView):
     queryset = Brand.objects.all()
 
 
-class ColorListView(generics.ListAPIView):
+class ColorListView(ActiveFilterMixin, generics.ListAPIView):
     """GET /catalog/colors/?active=true"""
     serializer_class = ColorSerializer
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        queryset = Color.objects.all()
-        active = _parse_bool(self.request.query_params.get('active'))
-        if active is True:
-            queryset = queryset.filter(is_active=True)
-        elif active is False:
-            queryset = queryset.filter(is_active=False)
+        queryset = self.filter_by_active(Color.objects.all())
         return queryset.order_by('name')
 
 
-class SizeListView(generics.ListAPIView):
+class SizeListView(ActiveFilterMixin, generics.ListAPIView):
     """GET /catalog/sizes/?active=true&size_type=shoes"""
     serializer_class = SizeSerializer
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        queryset = Size.objects.all()
-        active = _parse_bool(self.request.query_params.get('active'))
-        if active is True:
-            queryset = queryset.filter(is_active=True)
-        elif active is False:
-            queryset = queryset.filter(is_active=False)
+        queryset = self.filter_by_active(Size.objects.all())
 
         size_type = self.request.query_params.get('size_type')
         if size_type:
@@ -250,7 +246,3 @@ class PromoCheckView(APIView):
             'discount_amount': str(discount),
             'final_amount': str(amount - discount),
         })
-
-
-# Fix missing import
-from django.db import models

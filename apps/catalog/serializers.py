@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
-    Category, Brand, Product, ProductImage, ProductVideo,
-    ProductVariant, Color, Size, Review, ReviewImage, Banner, Promo
+    Banner, Brand, Category, Color, Product, ProductImage,
+    ProductVariant, Promo, Review, ReviewImage, Size,
 )
 
 
