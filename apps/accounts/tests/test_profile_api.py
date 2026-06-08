@@ -28,7 +28,7 @@ class ProfileAPITests(APITestCase):
             set(response.data.keys()),
             {
                 'id', 'email', 'phone', 'first_name', 'last_name',
-                'full_name', 'role', 'is_verified',
+                'full_name', 'avatar', 'role', 'is_verified', 'date_joined',
             },
         )
 
@@ -52,6 +52,33 @@ class ProfileAPITests(APITestCase):
         self.assertEqual(self.user.last_name, 'Khan')
         self.assertEqual(str(self.user.phone), '+77000000012')
 
+    def test_user_can_update_first_name(self):
+        self.client.force_authenticate(self.user)
+
+        response = self.client.patch(self.url, {'first_name': 'Ali'}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Ali')
+
+    def test_user_can_update_last_name(self):
+        self.client.force_authenticate(self.user)
+
+        response = self.client.patch(self.url, {'last_name': 'Khan'}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.last_name, 'Khan')
+
+    def test_user_can_update_phone(self):
+        self.client.force_authenticate(self.user)
+
+        response = self.client.patch(self.url, {'phone': '+77000000013'}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(str(self.user.phone), '+77000000013')
+
     def test_user_cannot_update_role_or_privilege_flags(self):
         self.client.force_authenticate(self.user)
 
@@ -59,8 +86,13 @@ class ProfileAPITests(APITestCase):
             'role': User.Role.ADMIN,
             'is_staff': True,
             'is_superuser': True,
+            'is_active': False,
             'is_email_verified': True,
             'is_verified': True,
+            'email': 'attacker@example.com',
+            'groups': [1],
+            'user_permissions': [1],
+            'date_joined': '2000-01-01T00:00:00Z',
             'first_name': 'Safe',
         }, format='json')
 
@@ -69,7 +101,9 @@ class ProfileAPITests(APITestCase):
         self.assertEqual(self.user.role, User.Role.CUSTOMER)
         self.assertFalse(self.user.is_staff)
         self.assertFalse(self.user.is_superuser)
+        self.assertTrue(self.user.is_active)
         self.assertFalse(self.user.is_email_verified)
+        self.assertEqual(self.user.email, 'profile@example.com')
         self.assertEqual(self.user.first_name, 'Safe')
 
     def test_profile_response_does_not_expose_sensitive_fields(self):

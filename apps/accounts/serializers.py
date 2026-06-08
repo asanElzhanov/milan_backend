@@ -42,7 +42,7 @@ class LoginSerializer(serializers.Serializer):
         }
 
 
-class UserSerializer(serializers.ModelSerializer):
+class UserProfileSerializer(serializers.ModelSerializer):
     full_name = serializers.ReadOnlyField()
     is_verified = serializers.ReadOnlyField()
 
@@ -50,15 +50,13 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             'id', 'email', 'phone', 'first_name', 'last_name',
-            'full_name', 'role', 'is_verified',
+            'full_name', 'avatar', 'role', 'is_verified', 'date_joined',
         )
-        read_only_fields = ('id', 'email', 'role', 'is_verified')
+        read_only_fields = ('id', 'email', 'full_name', 'role', 'is_verified', 'date_joined')
 
 
-class UserUpdateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ('first_name', 'last_name', 'phone', 'avatar')
+UserSerializer = UserProfileSerializer
+UserUpdateSerializer = UserProfileSerializer
 
 
 class ChangePasswordSerializer(serializers.Serializer):
@@ -80,7 +78,11 @@ class ChangePasswordSerializer(serializers.Serializer):
 class AddressSerializer(serializers.ModelSerializer):
     class Meta:
         model = Address
-        fields = ('id', 'title', 'country', 'city', 'street', 'apartment', 'postal_code', 'is_default')
+        fields = (
+            'id', 'title', 'country', 'city', 'street', 'apartment',
+            'postal_code', 'is_default', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'created_at', 'updated_at')
 
 
 class WishlistSerializer(serializers.ModelSerializer):

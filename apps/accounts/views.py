@@ -84,11 +84,6 @@ class MeView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         return self.request.user
 
-    def get_serializer_class(self):
-        if self.request.method in ('PUT', 'PATCH'):
-            return UserUpdateSerializer
-        return UserSerializer
-
 
 class ChangePasswordView(APIView):
     """POST /auth/change-password/"""
@@ -107,7 +102,7 @@ class AddressListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Address.objects.filter(user=self.request.user)
+        return Address.objects.filter(user=self.request.user).order_by('-is_default', '-created_at', '-id')
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -120,6 +115,16 @@ class AddressDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Address.objects.filter(user=self.request.user)
+
+    def perform_destroy(self, instance):
+        user = instance.user
+        was_default = instance.is_default
+        instance.delete()
+        if was_default:
+            replacement = Address.objects.filter(user=user).order_by('-created_at', '-id').first()
+            if replacement:
+                replacement.is_default = True
+                replacement.save(update_fields=['is_default', 'updated_at'])
 
 
 class WishlistView(generics.ListAPIView):

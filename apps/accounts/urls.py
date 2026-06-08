@@ -14,7 +14,7 @@ urlpatterns = [
     path('change-password/', views.ChangePasswordView.as_view(), name='change-password'),
 
     # Addresses
-    path('addresses/', views.AddressListCreateView.as_view(), name='addresses'),
+    path('addresses/', views.AddressListCreateView.as_view(), name='address-list'),
     path('addresses/<int:pk>/', views.AddressDetailView.as_view(), name='address-detail'),
 
     # Wishlist

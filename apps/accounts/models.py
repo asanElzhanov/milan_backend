@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
+from django.conf import settings
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from phonenumber_field.modelfields import PhoneNumberField
@@ -85,7 +86,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 class Address(models.Model):
     """Адрес доставки пользователя"""
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='addresses')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='addresses')
     title = models.CharField(_('название'), max_length=100, blank=True, help_text='Дом, Работа...')
     country = models.CharField(_('страна'), max_length=100, default='Казахстан')
     city = models.CharField(_('город'), max_length=100)
@@ -93,18 +94,21 @@ class Address(models.Model):
     apartment = models.CharField(_('квартира/офис'), max_length=50, blank=True)
     postal_code = models.CharField(_('индекс'), max_length=20, blank=True)
     is_default = models.BooleanField(_('по умолчанию'), default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = _('адрес')
         verbose_name_plural = _('адреса')
 
     def __str__(self):
-        return f'{self.city}, {self.street}'
+        return f'{self.title} - {self.city}, {self.street}' if self.title else f'{self.city}, {self.street}'
 
     def save(self, *args, **kwargs):
-        # Снимаем флаг default у других адресов
+        if not self.pk and not Address.objects.filter(user=self.user).exists():
+            self.is_default = True
         if self.is_default:
-            Address.objects.filter(user=self.user, is_default=True).update(is_default=False)
+            Address.objects.filter(user=self.user, is_default=True).exclude(pk=self.pk).update(is_default=False)
         super().save(*args, **kwargs)
 
 
@@ -148,6 +152,7 @@ class OTPCode(models.Model):
     def mark_used(self):
         self.is_used = True
         self.save(update_fields=['is_used'])
+
 
 
 
