@@ -113,6 +113,36 @@ celery -A config worker -l info
 celery -A config beat -l info
 ```
 
+## Docker Compose
+
+Compose поднимает весь backend stack: Django/Gunicorn, PostgreSQL, Redis, Celery worker,
+Celery Beat и MinIO для пользовательских файлов.
+
+```bash
+docker compose up -d
+```
+
+Если порт `8000` занят:
+
+```bash
+APP_PORT=8001 docker compose up -d
+```
+
+MinIO:
+- API: `http://localhost:9000`
+- Console: `http://localhost:9001`
+- bucket: `shop-media`
+- логин/пароль по умолчанию: `minioadmin` / `minioadmin`
+
+Если порт `9000` занят, можно поднять MinIO на других портах:
+
+```bash
+APP_PORT=8001 MINIO_API_PORT=9002 MINIO_CONSOLE_PORT=9003 MINIO_PUBLIC_DOMAIN=localhost:9002/shop-media docker compose up -d
+```
+
+Static files остаются локальными и отдаются через Whitenoise, а media uploads
+(`ImageField`/`FileField`) сохраняются в MinIO при `USE_S3=True`.
+
 ## Модели
 
 ```
