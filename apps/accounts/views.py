@@ -4,9 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.utils import timezone
-from datetime import timedelta
-import random
+import logging
 
 from .models import User, Address, Wishlist, OTPCode
 from .serializers import (
@@ -14,6 +12,20 @@ from .serializers import (
     ChangePasswordSerializer, AddressSerializer, WishlistSerializer,
     OTPRequestSerializer, OTPVerifySerializer,
 )
+from .services import check_otp_request_allowed, create_otp_code
+from apps.notifications.tasks import send_otp_task
+
+
+logger = logging.getLogger(__name__)
+
+
+def _serializer_detail_error(serializer):
+    detail = serializer.errors.get('detail')
+    if isinstance(detail, list) and detail:
+        detail = detail[0]
+    if detail:
+        return Response({'detail': str(detail)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class RegisterView(generics.CreateAPIView):
@@ -135,23 +147,26 @@ class WishlistToggleView(APIView):
 
 
 class OTPRequestView(APIView):
-    """POST /auth/otp/request/ — отправить код"""
+    """POST /auth/otp/request/ - send an OTP code."""
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        serializer = OTPRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        serializer = OTPRequestSerializer(data=request.data, context={'request': request})
+        if not serializer.is_valid():
+            return _serializer_detail_error(serializer)
         purpose = serializer.validated_data['purpose']
 
-        code = str(random.randint(100000, 999999))
-        OTPCode.objects.create(
-            user=request.user,
-            code=code,
-            purpose=purpose,
-            expires_at=timezone.now() + timedelta(minutes=10),
-        )
-        # TODO: отправить через Celery — send_otp_task.delay(request.user.id, code, purpose)
-        return Response({'detail': 'Код отправлен'})
+        rate_limit = check_otp_request_allowed(request.user, purpose)
+        if not rate_limit.allowed:
+            return Response({'detail': rate_limit.detail}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        otp = create_otp_code(request.user, purpose)
+        try:
+            send_otp_task.delay(request.user.id, otp.code, purpose)
+        except Exception:
+            logger.exception('Failed to enqueue OTP delivery for user_id=%s', request.user.id)
+
+        return Response({'detail': 'OTP code has been sent.'})
 
 
 class OTPVerifyView(APIView):
@@ -160,13 +175,40 @@ class OTPVerifyView(APIView):
 
     def post(self, request):
         serializer = OTPVerifySerializer(data=request.data, context={'request': request})
-        serializer.is_valid(raise_exception=True)
-        otp = serializer.validated_data['otp']
-        otp.is_used = True
-        otp.save()
+        if not serializer.is_valid():
+            if 'code' in serializer.errors:
+                return Response(
+                    {'detail': 'Invalid or expired OTP code.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            return _serializer_detail_error(serializer)
+        purpose = serializer.validated_data['purpose']
+        code = serializer.validated_data['code']
+        error_response = Response(
+            {'detail': 'Invalid or expired OTP code.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        otp = OTPCode.objects.filter(
+            user=request.user,
+            purpose=purpose,
+            code=code,
+            is_used=False,
+        ).order_by('-created_at').first()
+        if not otp:
+            return error_response
+
+        if otp.is_expired:
+            otp.mark_used()
+            return error_response
+
+        otp.mark_used()
 
         if otp.purpose == OTPCode.Purpose.EMAIL_VERIFY:
             request.user.is_email_verified = True
             request.user.save(update_fields=['is_email_verified'])
+        elif otp.purpose == OTPCode.Purpose.PHONE_VERIFY:
+            # TODO: set is_phone_verified=True here when the User model supports it.
+            pass
 
-        return Response({'detail': 'Верификация успешна'})
+        return Response({'detail': 'OTP verified successfully.'})

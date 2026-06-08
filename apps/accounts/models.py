@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from phonenumber_field.modelfields import PhoneNumberField
 
@@ -138,6 +139,15 @@ class OTPCode(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f'{self.user.email} — {self.code}'
+        return f'{self.user.email} - {self.code}'
+
+    @property
+    def is_expired(self):
+        return timezone.now() >= self.expires_at
+
+    def mark_used(self):
+        self.is_used = True
+        self.save(update_fields=['is_used'])
+
 
 

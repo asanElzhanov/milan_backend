@@ -1,8 +1,6 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
-from django.utils import timezone
-from datetime import timedelta
 from .models import User, Address, Wishlist, OTPCode
 
 
@@ -97,24 +95,36 @@ class WishlistSerializer(serializers.ModelSerializer):
         return ProductListSerializer(obj.product).data
 
 
+SUPPORTED_OTP_PURPOSES = (
+    OTPCode.Purpose.EMAIL_VERIFY,
+    OTPCode.Purpose.PHONE_VERIFY,
+)
+
+
 class OTPRequestSerializer(serializers.Serializer):
-    purpose = serializers.ChoiceField(choices=OTPCode.Purpose.choices)
-
-
-class OTPVerifySerializer(serializers.Serializer):
-    code = serializers.CharField(max_length=6)
-    purpose = serializers.ChoiceField(choices=OTPCode.Purpose.choices)
+    purpose = serializers.ChoiceField(choices=SUPPORTED_OTP_PURPOSES)
 
     def validate(self, data):
         user = self.context['request'].user
-        otp = OTPCode.objects.filter(
-            user=user,
-            code=data['code'],
-            purpose=data['purpose'],
-            is_used=False,
-            expires_at__gt=timezone.now()
-        ).first()
-        if not otp:
-            raise serializers.ValidationError('Неверный или истёкший код')
-        data['otp'] = otp
+        purpose = data['purpose']
+        if purpose == OTPCode.Purpose.EMAIL_VERIFY:
+            if not user.email:
+                raise serializers.ValidationError({'detail': 'Email is required.'})
+            if user.is_email_verified:
+                raise serializers.ValidationError({'detail': 'Email is already verified.'})
+        if purpose == OTPCode.Purpose.PHONE_VERIFY and not user.phone:
+            raise serializers.ValidationError({'detail': 'Phone number is required.'})
+        return data
+
+
+class OTPVerifySerializer(serializers.Serializer):
+    purpose = serializers.ChoiceField(choices=SUPPORTED_OTP_PURPOSES)
+    code = serializers.RegexField(
+        regex=r'^\d{6}$',
+        max_length=6,
+        min_length=6,
+        error_messages={'invalid': 'Invalid or expired OTP code.'},
+    )
+
+    def validate(self, data):
         return data

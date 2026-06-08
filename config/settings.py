@@ -111,6 +111,11 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
+# --- OTP verification ---
+OTP_CODE_TTL_MINUTES = config('OTP_CODE_TTL_MINUTES', default=10, cast=int)
+OTP_RESEND_COOLDOWN_SECONDS = config('OTP_RESEND_COOLDOWN_SECONDS', default=60, cast=int)
+OTP_MAX_ATTEMPTS_PER_HOUR = config('OTP_MAX_ATTEMPTS_PER_HOUR', default=5, cast=int)
+
 # --- DRF ---
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (

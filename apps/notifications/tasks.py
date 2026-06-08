@@ -1,7 +1,12 @@
+import logging
 from celery import shared_task
+from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.conf import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
@@ -55,25 +60,38 @@ def send_order_paid_notification(self, order_id):
 
 @shared_task(bind=True, max_retries=3)
 def send_otp_task(self, user_id, code, purpose):
-    """Отправить OTP код (email или SMS)"""
+    """Send an OTP code by email.
+
+    SMS delivery is not integrated yet; phone verification uses email fallback.
+    """
     try:
-        from apps.accounts.models import User
-        user = User.objects.get(pk=user_id)
+        user_model = get_user_model()
+        user = user_model.objects.get(pk=user_id)
+        if not user.email:
+            logger.warning('Cannot send OTP: user_id=%s has no email', user_id)
+            return
 
-        if purpose == 'email_verify':
-            send_mail(
-                subject='Код подтверждения',
-                message=f'Ваш код: {code}. Действует 10 минут.',
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False,
-            )
-        elif purpose == 'phone_verify':
-            # TODO: интегрировать SMS-провайдер (Nikita Mobile, SMS.kz и т.п.)
-            pass
+        purpose_note = ''
+        if purpose == 'phone_verify':
+            purpose_note = '\nThis code was requested for phone verification.'
+
+        send_mail(
+            subject='Your verification code',
+            message=(
+                f'Your verification code is: {code}\n\n'
+                f'The code is valid for {settings.OTP_CODE_TTL_MINUTES} minutes.'
+                f'{purpose_note}\n'
+                'If you did not request this code, please ignore this email.'
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+    except get_user_model().DoesNotExist:
+        logger.warning('Cannot send OTP: user_id=%s does not exist', user_id)
     except Exception as exc:
+        logger.exception('Failed to send OTP for user_id=%s', user_id)
         raise self.retry(exc=exc)
-
 
 @shared_task
 def send_order_status_update(order_id, new_status):
@@ -96,3 +114,4 @@ def send_order_status_update(order_id, new_status):
         recipient_list=[order.email],
         fail_silently=True,
     )
+
