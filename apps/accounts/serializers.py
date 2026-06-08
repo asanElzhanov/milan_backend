@@ -46,14 +46,19 @@ class LoginSerializer(serializers.Serializer):
 
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.ReadOnlyField()
+    is_verified = serializers.ReadOnlyField()
 
     class Meta:
         model = User
         fields = (
             'id', 'email', 'phone', 'first_name', 'last_name',
-            'full_name', 'avatar', 'role', 'is_email_verified', 'date_joined'
+            'full_name', 'avatar', 'role', 'is_verified',
+            'is_email_verified', 'date_joined'
         )
-        read_only_fields = ('id', 'role', 'is_email_verified', 'date_joined')
+        read_only_fields = (
+            'id', 'email', 'role', 'is_verified',
+            'is_email_verified', 'date_joined'
+        )
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):

@@ -7,8 +7,11 @@ from phonenumber_field.modelfields import PhoneNumberField
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
-            raise ValueError(_('Email обязателен'))
+            raise ValueError(_('Email is required'))
         email = self.normalize_email(email)
+        extra_fields.setdefault('role', User.Role.CUSTOMER)
+        extra_fields.setdefault('is_staff', False)
+        extra_fields.setdefault('is_superuser', False)
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -18,21 +21,25 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('role', User.Role.ADMIN)
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError(_('Superuser must have is_staff=True.'))
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError(_('Superuser must have is_superuser=True.'))
         return self.create_user(email, password, **extra_fields)
 
 
 class User(AbstractBaseUser, PermissionsMixin):
     class Role(models.TextChoices):
-        CUSTOMER = 'customer', _('Покупатель')
-        MANAGER = 'manager', _('Менеджер')
-        ADMIN = 'admin', _('Администратор')
+        CUSTOMER = 'customer', 'Customer'
+        MANAGER = 'manager', 'Manager'
+        ADMIN = 'admin', 'Admin'
 
     email = models.EmailField(_('email'), unique=True)
     phone = PhoneNumberField(_('телефон'), blank=True, null=True, unique=True)
     first_name = models.CharField(_('имя'), max_length=100, blank=True)
     last_name = models.CharField(_('фамилия'), max_length=100, blank=True)
     avatar = models.ImageField(_('фото'), upload_to='avatars/', blank=True, null=True)
-    role = models.CharField(_('роль'), max_length=20, choices=Role.choices, default=Role.CUSTOMER)
+    role = models.CharField('role', max_length=20, choices=Role.choices, default=Role.CUSTOMER)
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
@@ -56,7 +63,23 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def full_name(self):
-        return f'{self.first_name} {self.last_name}'.strip() or self.email
+        return f'{self.first_name} {self.last_name}'.strip()
+
+    @property
+    def is_verified(self):
+        return self.is_email_verified
+
+    @property
+    def is_customer(self):
+        return self.role == self.Role.CUSTOMER
+
+    @property
+    def is_manager(self):
+        return self.role == self.Role.MANAGER
+
+    @property
+    def is_admin_role(self):
+        return self.role == self.Role.ADMIN
 
 
 class Address(models.Model):
@@ -116,3 +139,5 @@ class OTPCode(models.Model):
 
     def __str__(self):
         return f'{self.user.email} — {self.code}'
+
+
