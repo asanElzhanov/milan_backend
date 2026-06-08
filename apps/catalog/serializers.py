@@ -6,21 +6,27 @@ from .models import (
 
 
 class CategorySerializer(serializers.ModelSerializer):
-    children = serializers.SerializerMethodField()
-
     class Meta:
         model = Category
         fields = (
             'id', 'name', 'slug', 'parent', 'image', 'description',
             'is_active', 'sort_order', 'seo_title', 'seo_description',
-            'seo_keywords', 'created_at', 'updated_at', 'children',
+            'seo_keywords',
         )
-        read_only_fields = ('created_at', 'updated_at')
+
+
+class CategoryTreeSerializer(CategorySerializer):
+    children = serializers.SerializerMethodField()
+
+    class Meta(CategorySerializer.Meta):
+        fields = CategorySerializer.Meta.fields + ('children',)
 
     def get_children(self, obj):
-        if obj.children.exists():
-            return CategorySerializer(obj.children.active(), many=True).data
-        return []
+        children = obj.children.all()
+        active = self.context.get('active')
+        if active is not None:
+            children = children.filter(is_active=active)
+        return CategoryTreeSerializer(children, many=True, context=self.context).data
 
 
 class BrandSerializer(serializers.ModelSerializer):

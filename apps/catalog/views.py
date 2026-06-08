@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from .models import Category, Brand, Product, Review, Banner, Promo
 from .serializers import (
-    CategorySerializer, BrandSerializer,
+    CategorySerializer, CategoryTreeSerializer, BrandSerializer,
     ProductListSerializer, ProductDetailSerializer,
     ReviewSerializer, ReviewCreateSerializer,
     BannerSerializer, PromoCheckSerializer,
@@ -15,13 +15,62 @@ from .serializers import (
 from .filters import ProductFilter
 
 
-class CategoryListView(generics.ListAPIView):
-    """GET /catalog/categories/ — дерево категорий (только корневые с детьми)"""
+def _parse_bool(value):
+    if value is None:
+        return None
+    value = value.lower()
+    if value in {'1', 'true', 'yes', 'y'}:
+        return True
+    if value in {'0', 'false', 'no', 'n'}:
+        return False
+    return None
+
+
+class CategoryQuerysetMixin:
+    def get_active_filter(self):
+        return _parse_bool(self.request.query_params.get('active'))
+
+    def get_queryset(self):
+        queryset = Category.objects.all()
+
+        active = self.get_active_filter()
+        if active is True:
+            queryset = queryset.active()
+        elif active is False:
+            queryset = queryset.filter(is_active=False)
+
+        parent = self.request.query_params.get('parent')
+        if parent:
+            queryset = queryset.filter(parent_id=parent)
+
+        return queryset.order_by('tree_id', 'lft')
+
+
+class CategoryListView(CategoryQuerysetMixin, generics.ListAPIView):
+    """GET /catalog/categories/?active=true&parent=1 — плоский список категорий"""
     serializer_class = CategorySerializer
     permission_classes = [permissions.AllowAny]
 
+
+class CategoryTreeView(CategoryQuerysetMixin, generics.ListAPIView):
+    """GET /catalog/categories/tree/?active=true — дерево категорий"""
+    serializer_class = CategoryTreeSerializer
+    permission_classes = [permissions.AllowAny]
+
     def get_queryset(self):
-        return Category.objects.active().filter(level=0).prefetch_related('children')
+        return super().get_queryset().filter(level=0).prefetch_related('children')
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['active'] = self.get_active_filter()
+        return context
+
+
+class CategoryDetailView(CategoryQuerysetMixin, generics.RetrieveAPIView):
+    """GET /catalog/categories/<slug>/"""
+    serializer_class = CategoryTreeSerializer
+    permission_classes = [permissions.AllowAny]
+    lookup_field = 'slug'
 
 
 class BrandListView(generics.ListAPIView):
