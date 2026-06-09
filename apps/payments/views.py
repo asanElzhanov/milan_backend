@@ -4,6 +4,7 @@ import hmac
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -15,6 +16,35 @@ from .models import Payment
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
+PaymentOrderRequestSerializer = inline_serializer(
+    name='PaymentOrderRequest',
+    fields={'order_number': serializers.CharField()},
+)
+StripeIntentResponseSerializer = inline_serializer(
+    name='StripeIntentResponse',
+    fields={'client_secret': serializers.CharField()},
+)
+KaspiCreateResponseSerializer = inline_serializer(
+    name='KaspiCreateResponse',
+    fields={'redirect_url': serializers.URLField()},
+)
+PaymentStatusResponseSerializer = inline_serializer(
+    name='PaymentStatusResponse',
+    fields={'status': serializers.CharField()},
+)
+StripeWebhookRequestSerializer = inline_serializer(
+    name='StripeWebhookRequest',
+    fields={'type': serializers.CharField(), 'data': serializers.JSONField()},
+)
+KaspiWebhookRequestSerializer = inline_serializer(
+    name='KaspiWebhookRequest',
+    fields={
+        'OrderId': serializers.CharField(),
+        'Status': serializers.ChoiceField(choices=['success', 'failed']),
+    },
+)
+
+
 class StripeCreateIntentView(APIView):
     """
     POST /payments/stripe/create-intent/
@@ -23,6 +53,16 @@ class StripeCreateIntentView(APIView):
     """
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Payments / Stripe'],
+        summary='Создать Stripe PaymentIntent',
+        request=PaymentOrderRequestSerializer,
+        responses={
+            200: StripeIntentResponseSerializer,
+            400: OpenApiResponse(description='Заказ уже оплачен или отменен'),
+            404: OpenApiResponse(description='Заказ не найден'),
+        },
+    )
     def post(self, request):
         order_number = request.data.get('order_number')
         try:
@@ -60,6 +100,12 @@ class StripeWebhookView(APIView):
     """
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Payments / Stripe'],
+        summary='Stripe webhook',
+        request=StripeWebhookRequestSerializer,
+        responses={200: PaymentStatusResponseSerializer, 400: OpenApiResponse(description='Некорректная подпись')},
+    )
     def post(self, request):
         payload = request.body
         sig_header = request.META.get('HTTP_STRIPE_SIGNATURE', '')
@@ -112,6 +158,12 @@ class KaspiCreateView(APIView):
     """
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Payments / Kaspi'],
+        summary='Создать ссылку Kaspi Pay',
+        request=PaymentOrderRequestSerializer,
+        responses={200: KaspiCreateResponseSerializer, 404: OpenApiResponse(description='Заказ не найден')},
+    )
     def post(self, request):
         order_number = request.data.get('order_number')
         try:
@@ -141,6 +193,12 @@ class KaspiWebhookView(APIView):
     """POST /payments/kaspi/webhook/ — коллбэк от Kaspi"""
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Payments / Kaspi'],
+        summary='Kaspi webhook',
+        request=KaspiWebhookRequestSerializer,
+        responses={200: PaymentStatusResponseSerializer, 404: OpenApiResponse(description='Заказ не найден')},
+    )
     def post(self, request):
         order_number = request.data.get('OrderId')
         tx_status = request.data.get('Status')  # 'success' | 'failed'

@@ -1,5 +1,7 @@
-from rest_framework import serializers
 from django.db import transaction
+from django.db import models
+from drf_spectacular.utils import OpenApiTypes, extend_schema_field
+from rest_framework import serializers
 from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem
 from apps.catalog.models import ProductVariant, Promo
 from apps.catalog.serializers import ProductListSerializer
@@ -17,6 +19,7 @@ class CartItemSerializer(serializers.ModelSerializer):
         model = CartItem
         fields = ('id', 'variant_id', 'product', 'color', 'size', 'quantity', 'unit_price', 'total_price')
 
+    @extend_schema_field(OpenApiTypes.OBJECT)
     def get_product(self, obj):
         return {
             'id': obj.variant.product.id,
@@ -24,12 +27,15 @@ class CartItemSerializer(serializers.ModelSerializer):
             'slug': obj.variant.product.slug,
         }
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_color(self, obj):
         return obj.variant.color.name if obj.variant.color else None
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_size(self, obj):
         return obj.variant.size.value if obj.variant.size else None
 
+    @extend_schema_field(OpenApiTypes.DECIMAL)
     def get_unit_price(self, obj):
         return str(obj.variant.final_price)
 
@@ -187,7 +193,3 @@ class OrderCreateSerializer(serializers.Serializer):
         OrderStatusHistory.objects.create(order=order, status=Order.Status.PENDING)
 
         return order
-
-
-# Fix import
-from django.db import models

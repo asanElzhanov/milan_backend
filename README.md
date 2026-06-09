@@ -82,7 +82,9 @@ shop_backend/
 | POST | `kaspi/webhook/` | Callback от Kaspi |
 
 ### Документация
-- Swagger UI: `/api/docs/`
+- Swagger UI: `/docs/`
+- Swagger UI (API alias): `/api/docs/`
+- OpenAPI schema: `/api/schema/`
 - Redoc: `/api/redoc/`
 
 ---

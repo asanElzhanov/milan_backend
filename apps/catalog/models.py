@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
@@ -134,7 +136,7 @@ class Product(models.Model):
         return self.name
 
     @property
-    def discount_percent(self):
+    def discount_percent(self) -> int:
         if self.old_price and self.old_price > self.price:
             return int((1 - self.price / self.old_price) * 100)
         return 0
@@ -246,11 +248,11 @@ class ProductVariant(models.Model):
         return f'{self.product} | {self.color} | {self.size}'
 
     @property
-    def is_available(self):
+    def is_available(self) -> bool:
         return self.stock > 0
 
     @property
-    def final_price(self):
+    def final_price(self) -> Decimal:
         return self.product.price + self.extra_price
 
 

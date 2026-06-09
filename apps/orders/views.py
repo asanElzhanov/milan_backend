@@ -1,7 +1,8 @@
-from rest_framework import generics, status, permissions
+from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.shortcuts import get_object_or_404
 
 from .models import Order, Cart, CartItem
 from .serializers import (
@@ -9,6 +10,16 @@ from .serializers import (
     OrderSerializer, OrderCreateSerializer,
 )
 from apps.notifications.tasks import send_order_confirmation_email
+
+
+OrderDetailResponseSerializer = inline_serializer(
+    name='OrderDetailResponse',
+    fields={'detail': serializers.CharField()},
+)
+CartItemQuantityUpdateSerializer = inline_serializer(
+    name='CartItemQuantityUpdate',
+    fields={'quantity': serializers.IntegerField(min_value=1)},
+)
 
 
 def get_or_create_cart(request):
@@ -31,6 +42,11 @@ class CartView(APIView):
     """GET /orders/cart/"""
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Cart'],
+        summary='Получить текущую корзину',
+        responses={200: CartSerializer},
+    )
     def get(self, request):
         cart = get_or_create_cart(request)
         serializer = CartSerializer(cart)
@@ -41,6 +57,12 @@ class CartAddView(APIView):
     """POST /orders/cart/add/"""
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Cart'],
+        summary='Добавить товар в корзину',
+        request=CartItemAddSerializer,
+        responses={200: CartSerializer, 400: OpenApiResponse(description='Ошибка валидации')},
+    )
     def post(self, request):
         serializer = CartItemAddSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -62,6 +84,16 @@ class CartItemUpdateView(APIView):
     """PATCH /orders/cart/items/<pk>/  — изменить количество"""
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Cart'],
+        summary='Изменить количество товара в корзине',
+        request=CartItemQuantityUpdateSerializer,
+        responses={
+            200: CartSerializer,
+            400: OrderDetailResponseSerializer,
+            404: OpenApiResponse(description='Позиция не найдена'),
+        },
+    )
     def patch(self, request, pk):
         cart = get_or_create_cart(request)
         item = get_object_or_404(CartItem, pk=pk, cart=cart)
@@ -77,6 +109,11 @@ class CartItemDeleteView(APIView):
     """DELETE /orders/cart/items/<pk>/"""
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Cart'],
+        summary='Удалить позицию из корзины',
+        responses={200: CartSerializer},
+    )
     def delete(self, request, pk):
         cart = get_or_create_cart(request)
         CartItem.objects.filter(pk=pk, cart=cart).delete()
@@ -87,6 +124,11 @@ class CartClearView(APIView):
     """DELETE /orders/cart/clear/"""
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Cart'],
+        summary='Очистить корзину',
+        responses={200: OrderDetailResponseSerializer},
+    )
     def delete(self, request):
         cart = get_or_create_cart(request)
         cart.cart_items.all().delete()
@@ -99,6 +141,12 @@ class OrderCreateView(APIView):
     """POST /orders/ — оформить заказ"""
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Orders'],
+        summary='Оформить заказ',
+        request=OrderCreateSerializer,
+        responses={201: OrderSerializer, 400: OpenApiResponse(description='Ошибка оформления заказа')},
+    )
     def post(self, request):
         cart = get_or_create_cart(request)
         serializer = OrderCreateSerializer(
@@ -123,7 +171,17 @@ class OrderListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Order.objects.none()
         return Order.objects.filter(user=self.request.user).prefetch_related('items')
+
+    @extend_schema(
+        tags=['Orders'],
+        summary='История заказов пользователя',
+        responses={200: OrderSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 
 class OrderDetailView(generics.RetrieveAPIView):
@@ -136,3 +194,11 @@ class OrderDetailView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         return Order.objects.prefetch_related('items', 'status_history')
+
+    @extend_schema(
+        tags=['Orders'],
+        summary='Детали заказа по номеру',
+        responses={200: OrderSerializer, 404: OpenApiResponse(description='Заказ не найден')},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)

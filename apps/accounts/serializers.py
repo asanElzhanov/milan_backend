@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
@@ -92,6 +93,7 @@ class WishlistSerializer(serializers.ModelSerializer):
         model = Wishlist
         fields = ('id', 'product', 'added_at')
 
+    @extend_schema_field(OpenApiTypes.OBJECT)
     def get_product(self, obj):
         from apps.catalog.serializers import ProductListSerializer
         return ProductListSerializer(obj.product).data

@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
@@ -21,6 +22,7 @@ class CategoryTreeSerializer(CategorySerializer):
     class Meta(CategorySerializer.Meta):
         fields = CategorySerializer.Meta.fields + ('children',)
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_children(self, obj):
         children = obj.children.all()
         active = self.context.get('active')
@@ -78,6 +80,7 @@ class ReviewSerializer(serializers.ModelSerializer):
         model = Review
         fields = ('id', 'user_name', 'rating', 'text', 'images', 'is_verified_purchase', 'created_at')
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_user_name(self, obj):
         return obj.user.full_name or 'Покупатель'
 
@@ -110,6 +113,7 @@ class ProductListSerializer(serializers.ModelSerializer):
             'main_image', 'rating', 'reviews_count', 'is_new',
         )
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_main_image(self, obj):
         img = obj.images.filter(is_main=True).first() or obj.images.first()
         if img:
@@ -145,16 +149,19 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             'created_at',
         )
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_videos(self, obj):
         return [
             {'video': v.video.url if v.video else None, 'youtube_url': v.youtube_url}
             for v in obj.videos.all()
         ]
 
+    @extend_schema_field(ReviewSerializer(many=True))
     def get_reviews(self, obj):
         qs = obj.reviews.filter(is_approved=True)[:5]
         return ReviewSerializer(qs, many=True).data
 
+    @extend_schema_field(SizeSerializer(many=True))
     def get_available_sizes(self, obj):
         sizes = Size.objects.filter(
             productvariant__product=obj,
@@ -162,6 +169,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
         ).distinct()
         return SizeSerializer(sizes, many=True).data
 
+    @extend_schema_field(ColorSerializer(many=True))
     def get_available_colors(self, obj):
         colors = Color.objects.filter(
             productvariant__product=obj

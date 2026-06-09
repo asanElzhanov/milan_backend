@@ -1,5 +1,5 @@
-from rest_framework import generics, status, permissions
-from rest_framework.decorators import api_view, permission_classes
+from drf_spectacular.utils import OpenApiResponse, OpenApiTypes, extend_schema, inline_serializer
+from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -19,6 +19,34 @@ from apps.notifications.tasks import send_otp_task
 logger = logging.getLogger(__name__)
 
 
+AuthTokensSerializer = inline_serializer(
+    name='AuthTokens',
+    fields={
+        'refresh': serializers.CharField(),
+        'access': serializers.CharField(),
+    },
+)
+AuthResponseSerializer = inline_serializer(
+    name='AuthResponse',
+    fields={
+        'user': UserSerializer(),
+        'tokens': AuthTokensSerializer,
+    },
+)
+DetailResponseSerializer = inline_serializer(
+    name='DetailResponse',
+    fields={'detail': serializers.CharField()},
+)
+StatusResponseSerializer = inline_serializer(
+    name='StatusResponse',
+    fields={'status': serializers.CharField()},
+)
+LogoutSerializer = inline_serializer(
+    name='LogoutRequest',
+    fields={'refresh': serializers.CharField()},
+)
+
+
 def _serializer_detail_error(serializer):
     detail = serializer.errors.get('detail')
     if isinstance(detail, list) and detail:
@@ -33,6 +61,12 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Auth'],
+        summary='Регистрация пользователя',
+        request=RegisterSerializer,
+        responses={201: AuthResponseSerializer, 400: OpenApiResponse(description='Ошибка валидации')},
+    )
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -51,6 +85,12 @@ class LoginView(APIView):
     """POST /auth/login/"""
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Auth'],
+        summary='Вход пользователя',
+        request=LoginSerializer,
+        responses={200: AuthResponseSerializer, 400: OpenApiResponse(description='Неверные учетные данные')},
+    )
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -66,6 +106,12 @@ class LogoutView(APIView):
     """POST /auth/logout/ — blacklist refresh token"""
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['Auth'],
+        summary='Выход пользователя',
+        request=LogoutSerializer,
+        responses={200: DetailResponseSerializer, 400: DetailResponseSerializer},
+    )
     def post(self, request):
         try:
             refresh_token = request.data['refresh']
@@ -76,6 +122,16 @@ class LogoutView(APIView):
             return Response({'detail': 'Ошибка'}, status=status.HTTP_400_BAD_REQUEST)
 
 
+class TokenRefreshAPIView(TokenRefreshView):
+    @extend_schema(
+        tags=['Auth'],
+        summary='Обновить JWT access token',
+        responses={200: OpenApiTypes.OBJECT, 401: OpenApiResponse(description='Refresh token недействителен')},
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+
+
 class MeView(generics.RetrieveUpdateAPIView):
     """GET/PATCH /auth/me/"""
     permission_classes = [permissions.IsAuthenticated]
@@ -84,11 +140,43 @@ class MeView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         return self.request.user
 
+    @extend_schema(
+        tags=['Profile'],
+        summary='Получить профиль',
+        responses={200: UserSerializer},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=['Profile'],
+        summary='Обновить профиль',
+        request=UserUpdateSerializer,
+        responses={200: UserSerializer, 400: OpenApiResponse(description='Ошибка валидации')},
+    )
+    def patch(self, request, *args, **kwargs):
+        return super().patch(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=['Profile'],
+        summary='Полностью обновить профиль',
+        request=UserUpdateSerializer,
+        responses={200: UserSerializer, 400: OpenApiResponse(description='Ошибка валидации')},
+    )
+    def put(self, request, *args, **kwargs):
+        return super().put(request, *args, **kwargs)
+
 
 class ChangePasswordView(APIView):
     """POST /auth/change-password/"""
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['Profile'],
+        summary='Сменить пароль',
+        request=ChangePasswordSerializer,
+        responses={200: DetailResponseSerializer, 400: OpenApiResponse(description='Ошибка валидации')},
+    )
     def post(self, request):
         serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
@@ -102,10 +190,29 @@ class AddressListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Address.objects.none()
         return Address.objects.filter(user=self.request.user).order_by('-is_default', '-created_at', '-id')
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    @extend_schema(
+        tags=['Addresses'],
+        summary='Список адресов',
+        responses={200: AddressSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=['Addresses'],
+        summary='Создать адрес',
+        request=AddressSerializer,
+        responses={201: AddressSerializer, 400: OpenApiResponse(description='Ошибка валидации')},
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
 
 
 class AddressDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -114,6 +221,8 @@ class AddressDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Address.objects.none()
         return Address.objects.filter(user=self.request.user)
 
     def perform_destroy(self, instance):
@@ -126,6 +235,40 @@ class AddressDetailView(generics.RetrieveUpdateDestroyAPIView):
                 replacement.is_default = True
                 replacement.save(update_fields=['is_default', 'updated_at'])
 
+    @extend_schema(
+        tags=['Addresses'],
+        summary='Получить адрес',
+        responses={200: AddressSerializer, 404: OpenApiResponse(description='Адрес не найден')},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=['Addresses'],
+        summary='Обновить адрес',
+        request=AddressSerializer,
+        responses={200: AddressSerializer, 400: OpenApiResponse(description='Ошибка валидации')},
+    )
+    def patch(self, request, *args, **kwargs):
+        return super().patch(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=['Addresses'],
+        summary='Полностью обновить адрес',
+        request=AddressSerializer,
+        responses={200: AddressSerializer, 400: OpenApiResponse(description='Ошибка валидации')},
+    )
+    def put(self, request, *args, **kwargs):
+        return super().put(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=['Addresses'],
+        summary='Удалить адрес',
+        responses={204: OpenApiResponse(description='Адрес удален')},
+    )
+    def delete(self, request, *args, **kwargs):
+        return super().delete(request, *args, **kwargs)
+
 
 class WishlistView(generics.ListAPIView):
     """GET /auth/wishlist/"""
@@ -133,13 +276,29 @@ class WishlistView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Wishlist.objects.none()
         return Wishlist.objects.filter(user=self.request.user).select_related('product')
+
+    @extend_schema(
+        tags=['Wishlist'],
+        summary='Список избранного',
+        responses={200: WishlistSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 
 class WishlistToggleView(APIView):
     """POST /auth/wishlist/toggle/<product_id>/"""
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['Wishlist'],
+        summary='Добавить или убрать товар из избранного',
+        request=None,
+        responses={200: StatusResponseSerializer, 201: StatusResponseSerializer},
+    )
     def post(self, request, product_id):
         item, created = Wishlist.objects.get_or_create(
             user=request.user,
@@ -155,6 +314,12 @@ class OTPRequestView(APIView):
     """POST /auth/otp/request/ - send an OTP code."""
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['OTP'],
+        summary='Запросить OTP код',
+        request=OTPRequestSerializer,
+        responses={200: DetailResponseSerializer, 400: DetailResponseSerializer, 429: DetailResponseSerializer},
+    )
     def post(self, request):
         serializer = OTPRequestSerializer(data=request.data, context={'request': request})
         if not serializer.is_valid():
@@ -178,6 +343,12 @@ class OTPVerifyView(APIView):
     """POST /auth/otp/verify/"""
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['OTP'],
+        summary='Подтвердить OTP код',
+        request=OTPVerifySerializer,
+        responses={200: DetailResponseSerializer, 400: DetailResponseSerializer},
+    )
     def post(self, request):
         serializer = OTPVerifySerializer(data=request.data, context={'request': request})
         if not serializer.is_valid():

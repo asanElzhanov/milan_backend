@@ -2,6 +2,7 @@ from django.db import models
 from django.db.models import F
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 from rest_framework import filters, generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -62,6 +63,18 @@ class CategoryListView(CategoryQuerysetMixin, generics.ListAPIView):
     serializer_class = CategorySerializer
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        tags=['Catalog / Categories'],
+        summary='Плоский список категорий',
+        parameters=[
+            OpenApiParameter('active', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
+            OpenApiParameter('parent', OpenApiTypes.INT, OpenApiParameter.QUERY),
+        ],
+        responses={200: CategorySerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
 
 class CategoryTreeView(CategoryQuerysetMixin, generics.ListAPIView):
     """GET /catalog/categories/tree/?active=true — дерево категорий"""
@@ -76,12 +89,31 @@ class CategoryTreeView(CategoryQuerysetMixin, generics.ListAPIView):
         context['active'] = self.get_active_filter()
         return context
 
+    @extend_schema(
+        tags=['Catalog / Categories'],
+        summary='Дерево категорий',
+        parameters=[
+            OpenApiParameter('active', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
+        ],
+        responses={200: CategoryTreeSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
 
 class CategoryDetailView(CategoryQuerysetMixin, generics.RetrieveAPIView):
     """GET /catalog/categories/<slug>/"""
     serializer_class = CategoryTreeSerializer
     permission_classes = [permissions.AllowAny]
     lookup_field = 'slug'
+
+    @extend_schema(
+        tags=['Catalog / Categories'],
+        summary='Категория по slug',
+        responses={200: CategoryTreeSerializer, 404: OpenApiResponse(description='Категория не найдена')},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 
 class BrandListView(ActiveFilterMixin, generics.ListAPIView):
@@ -93,6 +125,15 @@ class BrandListView(ActiveFilterMixin, generics.ListAPIView):
         queryset = self.filter_by_active(Brand.objects.all())
         return queryset.order_by('name')
 
+    @extend_schema(
+        tags=['Catalog / Brands'],
+        summary='Список брендов',
+        parameters=[OpenApiParameter('active', OpenApiTypes.BOOL, OpenApiParameter.QUERY)],
+        responses={200: BrandSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
 
 class BrandDetailView(generics.RetrieveAPIView):
     """GET /catalog/brands/<slug>/"""
@@ -100,6 +141,14 @@ class BrandDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.AllowAny]
     lookup_field = 'slug'
     queryset = Brand.objects.all()
+
+    @extend_schema(
+        tags=['Catalog / Brands'],
+        summary='Бренд по slug',
+        responses={200: BrandSerializer, 404: OpenApiResponse(description='Бренд не найден')},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 
 class ColorListView(ActiveFilterMixin, generics.ListAPIView):
@@ -110,6 +159,15 @@ class ColorListView(ActiveFilterMixin, generics.ListAPIView):
     def get_queryset(self):
         queryset = self.filter_by_active(Color.objects.all())
         return queryset.order_by('name')
+
+    @extend_schema(
+        tags=['Catalog / Colors'],
+        summary='Список цветов',
+        parameters=[OpenApiParameter('active', OpenApiTypes.BOOL, OpenApiParameter.QUERY)],
+        responses={200: ColorSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 
 class SizeListView(ActiveFilterMixin, generics.ListAPIView):
@@ -126,6 +184,23 @@ class SizeListView(ActiveFilterMixin, generics.ListAPIView):
 
         return queryset.order_by('size_type', 'sort_order', 'value')
 
+    @extend_schema(
+        tags=['Catalog / Sizes'],
+        summary='Список размеров',
+        parameters=[
+            OpenApiParameter('active', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
+            OpenApiParameter(
+                'size_type',
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                enum=[choice[0] for choice in Size.SizeType.choices],
+            ),
+        ],
+        responses={200: SizeSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
 
 class ProductListView(generics.ListAPIView):
     """GET /catalog/products/?category=krossovki&brand=nike&price_min=10000"""
@@ -141,6 +216,27 @@ class ProductListView(generics.ListAPIView):
         return Product.objects.filter(is_active=True).select_related(
             'category', 'brand'
         ).prefetch_related('images').distinct()
+
+    @extend_schema(
+        tags=['Catalog / Products'],
+        summary='Список товаров',
+        parameters=[
+            OpenApiParameter('category', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('brand', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('color', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('size', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('price_min', OpenApiTypes.NUMBER, OpenApiParameter.QUERY),
+            OpenApiParameter('price_max', OpenApiTypes.NUMBER, OpenApiParameter.QUERY),
+            OpenApiParameter('in_stock', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
+            OpenApiParameter('has_discount', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
+            OpenApiParameter('is_new', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
+            OpenApiParameter('search', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('ordering', OpenApiTypes.STR, OpenApiParameter.QUERY),
+        ],
+        responses={200: ProductListSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 
 class ProductDetailView(generics.RetrieveAPIView):
@@ -161,6 +257,14 @@ class ProductDetailView(generics.RetrieveAPIView):
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
+    @extend_schema(
+        tags=['Catalog / Products'],
+        summary='Карточка товара',
+        responses={200: ProductDetailSerializer, 404: OpenApiResponse(description='Товар не найден')},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
 
 class ProductSimilarView(generics.ListAPIView):
     """GET /catalog/products/<slug>/similar/"""
@@ -168,10 +272,20 @@ class ProductSimilarView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Product.objects.none()
         product = Product.objects.get(slug=self.kwargs['slug'])
         return Product.objects.filter(
             category=product.category, is_active=True
         ).exclude(pk=product.pk).order_by('-orders_count')[:8]
+
+    @extend_schema(
+        tags=['Catalog / Products'],
+        summary='Похожие товары',
+        responses={200: ProductListSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 
 class ReviewListCreateView(generics.ListCreateAPIView):
@@ -188,6 +302,8 @@ class ReviewListCreateView(generics.ListCreateAPIView):
         return ReviewSerializer
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Review.objects.none()
         return Review.objects.filter(
             product__slug=self.kwargs['slug'],
             is_approved=True
@@ -211,6 +327,23 @@ class ReviewListCreateView(generics.ListCreateAPIView):
             product.reviews_count = count
             product.save(update_fields=['rating', 'reviews_count'])
 
+    @extend_schema(
+        tags=['Catalog / Reviews'],
+        summary='Отзывы товара',
+        responses={200: ReviewSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=['Catalog / Reviews'],
+        summary='Создать отзыв',
+        request=ReviewCreateSerializer,
+        responses={201: ReviewSerializer, 400: OpenApiResponse(description='Ошибка валидации')},
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+
 
 class BannerListView(generics.ListAPIView):
     """GET /catalog/banners/?position=hero"""
@@ -228,11 +361,26 @@ class BannerListView(generics.ListAPIView):
             models.Q(ends_at__isnull=True) | models.Q(ends_at__gte=now),
         )
 
+    @extend_schema(
+        tags=['Catalog / Marketing'],
+        summary='Список баннеров',
+        parameters=[OpenApiParameter('position', OpenApiTypes.STR, OpenApiParameter.QUERY)],
+        responses={200: BannerSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
 
 class PromoCheckView(APIView):
     """POST /catalog/promo/check/ — проверить промокод"""
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=['Catalog / Marketing'],
+        summary='Проверить промокод',
+        request=PromoCheckSerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiResponse(description='Промокод недействителен')},
+    )
     def post(self, request):
         serializer = PromoCheckSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

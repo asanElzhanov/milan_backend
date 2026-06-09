@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 import uuid
@@ -131,11 +133,11 @@ class Cart(models.Model):
         return f'Корзина {self.user or self.session_key}'
 
     @property
-    def total(self):
+    def total(self) -> Decimal:
         return sum(item.total_price for item in self.cart_items.all())
 
     @property
-    def items_count(self):
+    def items_count(self) -> int:
         return sum(item.quantity for item in self.cart_items.all())
 
 
@@ -152,5 +154,5 @@ class CartItem(models.Model):
         return f'{self.variant} x{self.quantity}'
 
     @property
-    def total_price(self):
+    def total_price(self) -> Decimal:
         return self.variant.final_price * self.quantity

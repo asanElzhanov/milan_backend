@@ -64,23 +64,23 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.email
 
     @property
-    def full_name(self):
+    def full_name(self) -> str:
         return f'{self.first_name} {self.last_name}'.strip()
 
     @property
-    def is_verified(self):
+    def is_verified(self) -> bool:
         return self.is_email_verified
 
     @property
-    def is_customer(self):
+    def is_customer(self) -> bool:
         return self.role == self.Role.CUSTOMER
 
     @property
-    def is_manager(self):
+    def is_manager(self) -> bool:
         return self.role == self.Role.MANAGER
 
     @property
-    def is_admin_role(self):
+    def is_admin_role(self) -> bool:
         return self.role == self.Role.ADMIN
 
 
@@ -152,7 +152,6 @@ class OTPCode(models.Model):
     def mark_used(self):
         self.is_used = True
         self.save(update_fields=['is_used'])
-
 
 
 
