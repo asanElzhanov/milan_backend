@@ -50,9 +50,14 @@ class SizeSerializer(serializers.ModelSerializer):
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
+    alt = serializers.CharField(source='alt_text', read_only=True)
+
     class Meta:
         model = ProductImage
-        fields = ('id', 'image', 'alt', 'is_main', 'sort_order')
+        fields = (
+            'id', 'image', 'alt_text', 'alt',
+            'is_main', 'sort_order', 'created_at', 'updated_at',
+        )
 
 
 class ProductVariantSerializer(serializers.ModelSerializer):

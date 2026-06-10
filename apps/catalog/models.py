@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
@@ -212,18 +212,39 @@ class Product(models.Model):
 
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')
-    image = models.ImageField(_('изображение'), upload_to='products/')
-    alt = models.CharField(max_length=200, blank=True)
+    image = models.ImageField(_('изображение'), upload_to='products/images/%Y/%m/%d/')
+    alt_text = models.CharField(_('alt text'), max_length=200, blank=True)
     is_main = models.BooleanField(_('главное фото'), default=False)
     sort_order = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(_('создано'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('обновлено'), auto_now=True)
 
     class Meta:
-        ordering = ['sort_order']
+        verbose_name = _('изображение товара')
+        verbose_name_plural = _('изображения товаров')
+        ordering = ['sort_order', 'id']
+        indexes = [
+            models.Index(fields=['product', 'sort_order']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['product'],
+                condition=models.Q(is_main=True),
+                name='unique_main_image_per_product',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.product} image #{self.pk or "new"}'
 
     def save(self, *args, **kwargs):
-        if self.is_main:
-            ProductImage.objects.filter(product=self.product, is_main=True).update(is_main=False)
-        super().save(*args, **kwargs)
+        with transaction.atomic():
+            if self.is_main:
+                ProductImage.objects.filter(
+                    product=self.product,
+                    is_main=True,
+                ).exclude(pk=self.pk).update(is_main=False)
+            super().save(*args, **kwargs)
 
 
 class ProductVideo(models.Model):
