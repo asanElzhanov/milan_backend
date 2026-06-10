@@ -58,12 +58,27 @@ class ProductImageSerializer(serializers.ModelSerializer):
 class ProductVariantSerializer(serializers.ModelSerializer):
     color = ColorSerializer()
     size = SizeSerializer()
+    stock = serializers.IntegerField(source='stock_quantity', read_only=True)
+    sku_variant = serializers.CharField(source='sku', read_only=True)
+    extra_price = serializers.SerializerMethodField()
+    in_stock = serializers.ReadOnlyField()
     is_available = serializers.ReadOnlyField()
     final_price = serializers.ReadOnlyField()
 
     class Meta:
         model = ProductVariant
-        fields = ('id', 'color', 'size', 'stock', 'sku_variant', 'extra_price', 'is_available', 'final_price')
+        fields = (
+            'id', 'color', 'size',
+            'sku', 'stock_quantity', 'variant_price', 'is_active',
+            'stock', 'sku_variant', 'extra_price',
+            'in_stock', 'is_available', 'final_price',
+        )
+
+    @extend_schema_field(OpenApiTypes.DECIMAL)
+    def get_extra_price(self, obj):
+        if obj.variant_price is None:
+            return '0.00'
+        return str(obj.variant_price - obj.product.price)
 
 
 class ReviewImageSerializer(serializers.ModelSerializer):
@@ -169,14 +184,17 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     def get_available_sizes(self, obj):
         sizes = Size.objects.filter(
             productvariant__product=obj,
-            productvariant__stock__gt=0
+            productvariant__stock_quantity__gt=0,
+            productvariant__is_active=True,
         ).distinct()
         return SizeSerializer(sizes, many=True).data
 
     @extend_schema_field(ColorSerializer(many=True))
     def get_available_colors(self, obj):
         colors = Color.objects.filter(
-            productvariant__product=obj
+            productvariant__product=obj,
+            productvariant__stock_quantity__gt=0,
+            productvariant__is_active=True,
         ).distinct()
         return ColorSerializer(colors, many=True).data
 

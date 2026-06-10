@@ -298,25 +298,66 @@ class ProductVariant(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='variants')
     color = models.ForeignKey(Color, on_delete=models.SET_NULL, null=True, blank=True)
     size = models.ForeignKey(Size, on_delete=models.SET_NULL, null=True, blank=True)
-    stock = models.PositiveIntegerField(_('остаток'), default=0)
-    sku_variant = models.CharField(_('артикул варианта'), max_length=100, blank=True)
-    extra_price = models.DecimalField(_('доп. цена'), max_digits=8, decimal_places=2, default=0)
+    sku = models.CharField(_('артикул варианта'), max_length=100, unique=True)
+    stock_quantity = models.PositiveIntegerField(_('остаток'), default=0)
+    variant_price = models.DecimalField(
+        _('цена варианта'),
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+    )
+    is_active = models.BooleanField(_('активен'), default=True)
+    created_at = models.DateTimeField(_('создан'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('обновлен'), auto_now=True)
 
     class Meta:
         verbose_name = _('вариант товара')
+        verbose_name_plural = _('варианты товаров')
         unique_together = ('product', 'color', 'size')
-        indexes = [models.Index(fields=['product', 'stock'])]
+        indexes = [
+            models.Index(fields=['sku']),
+            models.Index(fields=['product']),
+            models.Index(fields=['is_active']),
+            models.Index(fields=['stock_quantity']),
+            models.Index(fields=['product', 'stock_quantity'], name='catalog_pro_product_ee4f5c_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(stock_quantity__gte=0),
+                name='product_variant_stock_non_negative',
+            ),
+            models.CheckConstraint(
+                check=models.Q(variant_price__isnull=True) | models.Q(variant_price__gte=0),
+                name='product_variant_price_non_negative',
+            ),
+        ]
 
     def __str__(self):
-        return f'{self.product} | {self.color} | {self.size}'
+        return f'{self.product} | {self.sku}'
+
+    @property
+    def in_stock(self) -> bool:
+        return self.stock_quantity > 0 and self.is_active
 
     @property
     def is_available(self) -> bool:
-        return self.stock > 0
+        return self.in_stock
 
     @property
     def final_price(self) -> Decimal:
-        return self.product.price + self.extra_price
+        return self.variant_price if self.variant_price is not None else self.product.price
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.stock_quantity is not None and self.stock_quantity < 0:
+            errors['stock_quantity'] = _('Остаток не может быть отрицательным.')
+        if self.variant_price is not None and self.variant_price < 0:
+            errors['variant_price'] = _('Цена варианта не может быть отрицательной.')
+        if errors:
+            raise ValidationError(errors)
 
 
 class Review(models.Model):

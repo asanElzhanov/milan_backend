@@ -3,13 +3,15 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
-from apps.catalog.models import Brand, Category, Product
+from apps.catalog.models import Brand, Category, Color, Product, ProductVariant, Size
 
 
 class ProductModelTests(TestCase):
     def setUp(self):
         self.category = Category.objects.create(name='Shoes', slug='shoes')
         self.brand = Brand.objects.create(name='Nike', slug='nike')
+        self.color = Color.objects.create(name='Black', slug='black', hex_code='#000000')
+        self.size = Size.objects.create(value='42', size_type=Size.SizeType.SHOES)
 
     def make_product(self, **kwargs):
         data = {
@@ -49,3 +51,59 @@ class ProductModelTests(TestCase):
         self.assertEqual(product.discount, 20)
         self.assertEqual(product.discount_percent, 20)
         self.assertTrue(product.is_sale)
+
+    def test_variant_uses_product_price_when_variant_price_is_empty(self):
+        product = self.make_product()
+        product.save()
+        variant = ProductVariant.objects.create(
+            product=product,
+            color=self.color,
+            size=self.size,
+            sku='VAR-1',
+            stock_quantity=3,
+        )
+
+        self.assertEqual(variant.final_price, product.price)
+
+    def test_variant_price_overrides_product_price(self):
+        product = self.make_product()
+        product.save()
+        variant = ProductVariant.objects.create(
+            product=product,
+            color=self.color,
+            size=self.size,
+            sku='VAR-2',
+            stock_quantity=3,
+            variant_price=Decimal('120.00'),
+        )
+
+        self.assertEqual(variant.final_price, Decimal('120.00'))
+
+    def test_variant_in_stock_requires_quantity_and_active_status(self):
+        product = self.make_product()
+        product.save()
+        variant = ProductVariant(
+            product=product,
+            color=self.color,
+            size=self.size,
+            sku='VAR-3',
+            stock_quantity=1,
+            is_active=False,
+        )
+
+        self.assertFalse(variant.in_stock)
+
+    def test_variant_rejects_negative_variant_price(self):
+        product = self.make_product()
+        product.save()
+        variant = ProductVariant(
+            product=product,
+            color=self.color,
+            size=self.size,
+            sku='VAR-4',
+            stock_quantity=1,
+            variant_price=Decimal('-1.00'),
+        )
+
+        with self.assertRaises(ValidationError):
+            variant.full_clean()

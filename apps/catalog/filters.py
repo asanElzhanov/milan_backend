@@ -27,7 +27,7 @@ class ProductFilter(django_filters.FilterSet):
 
     def filter_in_stock(self, queryset, name, value):
         if value:
-            return queryset.filter(variants__stock__gt=0).distinct()
+            return queryset.filter(variants__stock_quantity__gt=0, variants__is_active=True).distinct()
         return queryset
 
     def filter_has_discount(self, queryset, name, value):

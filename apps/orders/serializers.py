@@ -179,7 +179,7 @@ class OrderCreateSerializer(serializers.Serializer):
             )
             # Уменьшаем склад
             ProductVariant.objects.filter(pk=variant.pk).update(
-                stock=models.F('stock') - item.quantity
+                stock_quantity=models.F('stock_quantity') - item.quantity
             )
 
         # Используем промокод
