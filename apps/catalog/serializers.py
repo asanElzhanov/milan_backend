@@ -104,13 +104,15 @@ class ProductListSerializer(serializers.ModelSerializer):
     brand_name = serializers.CharField(source='brand.name', read_only=True)
     category_name = serializers.CharField(source='category.name', read_only=True)
     discount_percent = serializers.ReadOnlyField()
+    discount = serializers.ReadOnlyField()
+    is_sale = serializers.ReadOnlyField()
 
     class Meta:
         model = Product
         fields = (
             'id', 'name', 'slug', 'sku', 'brand_name', 'category_name',
-            'price', 'old_price', 'discount_percent',
-            'main_image', 'rating', 'reviews_count', 'is_new',
+            'price', 'old_price', 'discount', 'discount_percent',
+            'is_sale', 'main_image', 'rating', 'reviews_count', 'is_new',
         )
 
     @extend_schema_field(OpenApiTypes.URI)
@@ -131,6 +133,8 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     reviews = serializers.SerializerMethodField()
     discount_percent = serializers.ReadOnlyField()
+    discount = serializers.ReadOnlyField()
+    is_sale = serializers.ReadOnlyField()
     available_sizes = serializers.SerializerMethodField()
     available_colors = serializers.SerializerMethodField()
 
@@ -140,12 +144,12 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             'id', 'name', 'slug', 'sku',
             'category', 'brand',
             'description', 'composition', 'material', 'season',
-            'price', 'old_price', 'discount_percent',
+            'price', 'old_price', 'discount', 'discount_percent', 'is_sale',
             'images', 'videos', 'variants',
             'available_sizes', 'available_colors',
             'rating', 'reviews_count', 'reviews',
             'is_new', 'is_featured',
-            'meta_title', 'meta_description',
+            'seo_title', 'seo_description', 'meta_title', 'meta_description',
             'created_at',
         )
 

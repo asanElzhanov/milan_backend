@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
@@ -100,8 +101,20 @@ class Product(models.Model):
     season = models.CharField(_('сезон'), max_length=10, choices=Season.choices, blank=True)
 
     # Цены
-    price = models.DecimalField(_('цена'), max_digits=10, decimal_places=2)
-    old_price = models.DecimalField(_('старая цена'), max_digits=10, decimal_places=2, null=True, blank=True)
+    price = models.DecimalField(
+        _('цена'),
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))],
+    )
+    old_price = models.DecimalField(
+        _('старая цена'),
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+    )
 
     # Статус
     is_active = models.BooleanField(_('активен'), default=True)
@@ -115,6 +128,8 @@ class Product(models.Model):
     reviews_count = models.PositiveIntegerField(default=0)
 
     # SEO
+    seo_title = models.CharField(_('SEO title'), max_length=200, blank=True)
+    seo_description = models.TextField(_('SEO description'), blank=True)
     meta_title = models.CharField(max_length=200, blank=True)
     meta_description = models.TextField(blank=True)
 
@@ -127,9 +142,20 @@ class Product(models.Model):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['slug']),
+            models.Index(fields=['is_active']),
             models.Index(fields=['category', 'is_active']),
             models.Index(fields=['brand', 'is_active']),
             models.Index(fields=['-created_at']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(price__gte=0),
+                name='product_price_non_negative',
+            ),
+            models.CheckConstraint(
+                check=models.Q(old_price__isnull=True) | models.Q(old_price__gte=models.F('price')),
+                name='product_old_price_gte_price',
+            ),
         ]
 
     def __str__(self):
@@ -141,10 +167,47 @@ class Product(models.Model):
             return int((1 - self.price / self.old_price) * 100)
         return 0
 
+    @property
+    def discount(self) -> int:
+        return self.discount_percent
+
+    @property
+    def is_sale(self) -> bool:
+        return self.discount_percent > 0
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.price is not None and self.price < 0:
+            errors['price'] = _('Цена не может быть отрицательной.')
+        if (
+            self.old_price is not None
+            and self.price is not None
+            and self.old_price < self.price
+        ):
+            errors['old_price'] = _('Старая цена не может быть меньше текущей цены.')
+        if errors:
+            raise ValidationError(errors)
+
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(f'{self.brand} {self.name}', allow_unicode=True)
+            self.slug = self._generate_unique_slug()
         super().save(*args, **kwargs)
+
+    def _generate_unique_slug(self):
+        base_slug = slugify(self.name, allow_unicode=True) or 'product'
+        slug = base_slug
+        counter = 2
+        queryset = Product.objects.filter(slug=slug)
+        if self.pk:
+            queryset = queryset.exclude(pk=self.pk)
+        while queryset.exists():
+            slug = f'{base_slug}-{counter}'
+            counter += 1
+            queryset = Product.objects.filter(slug=slug)
+            if self.pk:
+                queryset = queryset.exclude(pk=self.pk)
+        return slug
 
 
 class ProductImage(models.Model):
