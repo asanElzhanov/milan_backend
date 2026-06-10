@@ -248,7 +248,7 @@ class ProductDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         return Product.objects.filter(is_active=True).select_related(
             'category', 'brand'
-        ).prefetch_related('images', 'videos', 'variants__color', 'variants__size', 'reviews__user')
+        ).prefetch_related('images', 'media', 'videos', 'variants__color', 'variants__size', 'reviews__user')
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()

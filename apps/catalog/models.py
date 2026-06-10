@@ -257,6 +257,48 @@ class ProductVideo(models.Model):
         verbose_name = _('видео товара')
 
 
+class ProductMedia(models.Model):
+    """Дополнительные медиа товара. ProductImage остается основной галереей изображений."""
+    class MediaType(models.TextChoices):
+        IMAGE = 'image', _('Изображение')
+        VIDEO = 'video', _('Видео')
+
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='media')
+    media_type = models.CharField(_('тип медиа'), max_length=10, choices=MediaType.choices)
+    file = models.FileField(_('файл'), upload_to='products/media/%Y/%m/%d/', blank=True)
+    url = models.URLField(_('ссылка'), blank=True)
+    title = models.CharField(_('заголовок'), max_length=200, blank=True)
+    alt_text = models.CharField(_('alt text'), max_length=200, blank=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(_('активно'), default=True)
+    created_at = models.DateTimeField(_('создано'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('обновлено'), auto_now=True)
+
+    class Meta:
+        verbose_name = _('медиа товара')
+        verbose_name_plural = _('медиа товаров')
+        ordering = ['sort_order', 'id']
+        indexes = [
+            models.Index(fields=['product', 'sort_order'], name='product_media_product_sort_idx'),
+            models.Index(fields=['media_type'], name='product_media_type_idx'),
+            models.Index(fields=['is_active'], name='product_media_active_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=~models.Q(file='') | ~models.Q(url=''),
+                name='product_media_file_or_url_required',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.product} | {self.media_type} #{self.pk or "new"}'
+
+    def clean(self):
+        super().clean()
+        if not self.file and not self.url:
+            raise ValidationError(_('Укажите файл или ссылку для медиа товара.'))
+
+
 class Color(models.Model):
     name = models.CharField(_('название'), max_length=50)
     slug = models.SlugField(max_length=80, unique=True)

@@ -1,6 +1,9 @@
 from django.contrib import admin
 from mptt.admin import MPTTModelAdmin
-from .models import Category, Brand, Product, ProductImage, ProductVariant, Color, Size, Review, Banner, Promo
+from .models import (
+    Banner, Brand, Category, Color, Product, ProductImage,
+    ProductMedia, ProductVariant, Promo, Review, Size,
+)
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
@@ -17,6 +20,15 @@ class ProductImageInline(admin.TabularInline):
 class ProductVariantInline(admin.TabularInline):
     model = ProductVariant
     extra = 1
+
+
+@admin.register(ProductMedia)
+class ProductMediaAdmin(admin.ModelAdmin):
+    list_display = ('product', 'media_type', 'title', 'is_active', 'sort_order')
+    list_filter = ('media_type', 'is_active')
+    search_fields = ('product__name', 'title', 'url', 'alt_text')
+    autocomplete_fields = ('product',)
+    readonly_fields = ('created_at', 'updated_at')
 
 @admin.register(Category)
 class CategoryAdmin(MPTTModelAdmin):

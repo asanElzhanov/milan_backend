@@ -2,7 +2,7 @@ from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
-    ProductVariant, Promo, Review, ReviewImage, Size,
+    ProductMedia, ProductVariant, Promo, Review, ReviewImage, Size,
 )
 
 
@@ -57,6 +57,15 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'image', 'alt_text', 'alt',
             'is_main', 'sort_order', 'created_at', 'updated_at',
+        )
+
+
+class ProductMediaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductMedia
+        fields = (
+            'id', 'media_type', 'file', 'url', 'title', 'alt_text',
+            'sort_order', 'is_active', 'created_at', 'updated_at',
         )
 
 
@@ -147,6 +156,7 @@ class ProductListSerializer(serializers.ModelSerializer):
 # Детальный сериализатор для карточки товара
 class ProductDetailSerializer(serializers.ModelSerializer):
     images = ProductImageSerializer(many=True, read_only=True)
+    media = serializers.SerializerMethodField()
     videos = serializers.SerializerMethodField()
     variants = ProductVariantSerializer(many=True, read_only=True)
     brand = BrandSerializer(read_only=True)
@@ -165,7 +175,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             'category', 'brand',
             'description', 'composition', 'material', 'season',
             'price', 'old_price', 'discount', 'discount_percent', 'is_sale',
-            'images', 'videos', 'variants',
+            'images', 'media', 'videos', 'variants',
             'available_sizes', 'available_colors',
             'rating', 'reviews_count', 'reviews',
             'is_new', 'is_featured',
@@ -179,6 +189,14 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             {'video': v.video.url if v.video else None, 'youtube_url': v.youtube_url}
             for v in obj.videos.all()
         ]
+
+    @extend_schema_field(ProductMediaSerializer(many=True))
+    def get_media(self, obj):
+        return ProductMediaSerializer(
+            obj.media.filter(is_active=True),
+            many=True,
+            context=self.context,
+        ).data
 
     @extend_schema_field(ReviewSerializer(many=True))
     def get_reviews(self, obj):
