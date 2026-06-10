@@ -130,27 +130,89 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
 # Лёгкий сериализатор для списков
 class ProductListSerializer(serializers.ModelSerializer):
     main_image = serializers.SerializerMethodField()
+    category = serializers.SerializerMethodField()
+    brand = serializers.SerializerMethodField()
     brand_name = serializers.CharField(source='brand.name', read_only=True)
     category_name = serializers.CharField(source='category.name', read_only=True)
     discount_percent = serializers.ReadOnlyField()
     discount = serializers.ReadOnlyField()
     is_sale = serializers.ReadOnlyField()
+    min_price = serializers.SerializerMethodField()
+    in_stock = serializers.SerializerMethodField()
+    available_colors = serializers.SerializerMethodField()
+    available_sizes = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
         fields = (
-            'id', 'name', 'slug', 'sku', 'brand_name', 'category_name',
+            'id', 'name', 'slug', 'sku', 'category', 'brand',
+            'brand_name', 'category_name',
             'price', 'old_price', 'discount', 'discount_percent',
-            'is_sale', 'main_image', 'rating', 'reviews_count', 'is_new',
+            'is_new', 'is_sale', 'is_active',
+            'main_image', 'min_price', 'in_stock',
+            'available_colors', 'available_sizes',
+            'rating', 'reviews_count',
         )
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_main_image(self, obj):
-        img = obj.images.filter(is_main=True).first() or obj.images.first()
+        images = list(obj.images.all())
+        img = next((image for image in images if image.is_main), None)
+        if img is None and images:
+            img = images[0]
         if img:
             request = self.context.get('request')
             return request.build_absolute_uri(img.image.url) if request else img.image.url
         return None
+
+    @extend_schema_field(serializers.DictField())
+    def get_category(self, obj):
+        if not obj.category:
+            return None
+        return {'id': obj.category.id, 'name': obj.category.name, 'slug': obj.category.slug}
+
+    @extend_schema_field(serializers.DictField())
+    def get_brand(self, obj):
+        if not obj.brand:
+            return None
+        return {'id': obj.brand.id, 'name': obj.brand.name, 'slug': obj.brand.slug}
+
+    @extend_schema_field(OpenApiTypes.DECIMAL)
+    def get_min_price(self, obj):
+        annotated_min_price = getattr(obj, '_min_price', None)
+        if annotated_min_price is not None:
+            return annotated_min_price
+
+        variants = [variant for variant in obj.variants.all() if variant.is_active]
+        if not variants:
+            return obj.price
+        return min(
+            variant.variant_price if variant.variant_price is not None else obj.price
+            for variant in variants
+        )
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_in_stock(self, obj):
+        annotated_in_stock = getattr(obj, '_in_stock', None)
+        if annotated_in_stock is not None:
+            return annotated_in_stock
+        return any(variant.in_stock for variant in obj.variants.all())
+
+    @extend_schema_field(ColorSerializer(many=True))
+    def get_available_colors(self, obj):
+        colors = {}
+        for variant in obj.variants.all():
+            if variant.in_stock and variant.color:
+                colors[variant.color.id] = variant.color
+        return ColorSerializer(colors.values(), many=True).data
+
+    @extend_schema_field(SizeSerializer(many=True))
+    def get_available_sizes(self, obj):
+        sizes = {}
+        for variant in obj.variants.all():
+            if variant.in_stock and variant.size:
+                sizes[variant.size.id] = variant.size
+        return SizeSerializer(sizes.values(), many=True).data
 
 
 # Детальный сериализатор для карточки товара

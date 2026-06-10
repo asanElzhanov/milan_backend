@@ -1,5 +1,5 @@
 from django.db import models
-from django.db.models import F
+from django.db.models import F, Prefetch
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
@@ -7,14 +7,14 @@ from rest_framework import filters, generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Banner, Brand, Category, Color, Product, Promo, Review, Size
+from .models import Banner, Brand, Category, Color, Product, ProductImage, ProductVariant, Promo, Review, Size
 from .serializers import (
     CategorySerializer, CategoryTreeSerializer, BrandSerializer, ColorSerializer, SizeSerializer,
     ProductListSerializer, ProductDetailSerializer,
     ReviewSerializer, ReviewCreateSerializer,
     BannerSerializer, PromoCheckSerializer,
 )
-from .filters import ProductFilter
+from .filters import ProductFilter, with_product_list_annotations
 
 
 def _parse_bool(value):
@@ -56,6 +56,21 @@ class ActiveFilterMixin:
         if active is False:
             return queryset.filter(is_active=False)
         return queryset
+
+
+class ProductOrderingFilter(filters.OrderingFilter):
+    ordering_aliases = {
+        'min_price': '_min_price',
+    }
+
+    def remove_invalid_fields(self, queryset, fields, view, request):
+        valid_fields = super().remove_invalid_fields(queryset, fields, view, request)
+        ordering = []
+        for field in valid_fields:
+            prefix = '-' if field.startswith('-') else ''
+            field_name = field[1:] if prefix else field
+            ordering.append(f'{prefix}{self.ordering_aliases.get(field_name, field_name)}')
+        return ordering
 
 
 class CategoryListView(CategoryQuerysetMixin, generics.ListAPIView):
@@ -206,29 +221,41 @@ class ProductListView(generics.ListAPIView):
     """GET /catalog/products/?category=krossovki&brand=nike&price_min=10000"""
     serializer_class = ProductListSerializer
     permission_classes = [permissions.AllowAny]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, ProductOrderingFilter]
     filterset_class = ProductFilter
     search_fields = ['name', 'description', 'brand__name', 'sku']
-    ordering_fields = ['price', 'created_at', 'rating', 'orders_count', 'discount_percent']
+    ordering_fields = ['price', 'min_price', 'created_at', 'name', 'rating', 'orders_count']
     ordering = ['-created_at']
 
     def get_queryset(self):
-        return Product.objects.filter(is_active=True).select_related(
-            'category', 'brand'
-        ).prefetch_related('images').distinct()
+        queryset = with_product_list_annotations(
+            Product.objects.filter(is_active=True).select_related('category', 'brand')
+        )
+        return queryset.prefetch_related(
+            Prefetch('images', queryset=ProductImage.objects.order_by('sort_order', 'id')),
+            Prefetch(
+                'variants',
+                queryset=ProductVariant.objects.filter(is_active=True).select_related('color', 'size'),
+            ),
+        ).distinct()
 
     @extend_schema(
         tags=['Catalog / Products'],
         summary='Список товаров',
         parameters=[
             OpenApiParameter('category', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('category_slug', OpenApiTypes.STR, OpenApiParameter.QUERY),
             OpenApiParameter('brand', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('brand_slug', OpenApiTypes.STR, OpenApiParameter.QUERY),
             OpenApiParameter('color', OpenApiTypes.STR, OpenApiParameter.QUERY),
             OpenApiParameter('size', OpenApiTypes.STR, OpenApiParameter.QUERY),
             OpenApiParameter('price_min', OpenApiTypes.NUMBER, OpenApiParameter.QUERY),
             OpenApiParameter('price_max', OpenApiTypes.NUMBER, OpenApiParameter.QUERY),
+            OpenApiParameter('min_price', OpenApiTypes.NUMBER, OpenApiParameter.QUERY),
+            OpenApiParameter('max_price', OpenApiTypes.NUMBER, OpenApiParameter.QUERY),
             OpenApiParameter('in_stock', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
             OpenApiParameter('has_discount', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
+            OpenApiParameter('is_sale', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
             OpenApiParameter('is_new', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
             OpenApiParameter('search', OpenApiTypes.STR, OpenApiParameter.QUERY),
             OpenApiParameter('ordering', OpenApiTypes.STR, OpenApiParameter.QUERY),
