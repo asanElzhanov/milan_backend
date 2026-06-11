@@ -1,10 +1,7 @@
-from django.db import models, transaction
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem
-from apps.catalog.models import Promo
-from apps.catalog.services import StockService
-from .services import CartService
+from .services import CartService, CheckoutService
 
 
 class CartItemSerializer(serializers.ModelSerializer):
@@ -162,29 +159,10 @@ class OrderCreateSerializer(serializers.Serializer):
     delivery_country = serializers.CharField(default='Казахстан', write_only=True)
     delivery_postal_code = serializers.CharField(required=False, allow_blank=True)
 
-    promo_code = serializers.CharField(required=False, allow_blank=True)
-
-    DELIVERY_COSTS = {
-        Order.DeliveryMethod.COURIER: 1500,
-        Order.DeliveryMethod.PICKUP: 0,
-        Order.DeliveryMethod.POST: 800,
-        Order.DeliveryMethod.OTHER: 0,
-    }
-
     def validate(self, data):
         cart = self.context['cart']
         if not cart.items.exists():
             raise serializers.ValidationError('Корзина пуста')
-
-        # Проверяем промокод
-        if data.get('promo_code'):
-            try:
-                promo = Promo.objects.get(code=data['promo_code'].upper(), is_active=True)
-                if not promo.is_valid():
-                    raise serializers.ValidationError({'promo_code': 'Промокод недействителен'})
-                data['promo'] = promo
-            except Promo.DoesNotExist:
-                raise serializers.ValidationError({'promo_code': 'Промокод не найден'})
 
         customer_name = data.get('customer_name', '').strip()
         if not customer_name:
@@ -198,22 +176,9 @@ class OrderCreateSerializer(serializers.Serializer):
 
         return data
 
-    @transaction.atomic
     def create(self, validated_data):
-        cart = self.context['cart']
-        promo = validated_data.pop('promo', None)
-
-        # Считаем subtotal
-        items_data = list(cart.items.select_related(
-            'variant__product', 'variant__color', 'variant__size'
-        ))
-        subtotal = sum(item.total_price for item in items_data)
-        delivery_cost = self.DELIVERY_COSTS.get(validated_data['delivery_method'], 0)
-
-        discount_amount = promo.calculate_discount(subtotal) if promo else 0
-        total = subtotal - discount_amount + delivery_cost
-
-        order = Order.objects.create(
+        return CheckoutService.checkout(
+            cart=self.context['cart'],
             user=self.context.get('user'),
             customer_name=validated_data['customer_name'],
             phone=validated_data['phone'],
@@ -221,41 +186,5 @@ class OrderCreateSerializer(serializers.Serializer):
             city=validated_data.get('city', ''),
             delivery_address=validated_data.get('delivery_address', ''),
             delivery_method=validated_data['delivery_method'],
-            total_amount=total,
-            status=Order.Status.NEW,
-            payment_status=Order.PaymentStatus.UNPAID,
             comment=validated_data.get('comment', ''),
         )
-
-        # Создаём позиции + уменьшаем остаток
-        for item in items_data:
-            variant = item.variant
-            OrderItem.objects.create(
-                order=order,
-                variant=variant,
-                product_name=variant.product.name,
-                product_slug=variant.product.slug,
-                sku=variant.sku,
-                size_name=variant.size.value if variant.size else '',
-                color_name=variant.color.name if variant.color else '',
-                quantity=item.quantity,
-                unit_price=variant.final_price,
-            )
-            StockService.sale(
-                variant=variant,
-                quantity=item.quantity,
-                user=self.context.get('user'),
-                comment=f'Заказ #{order.order_number}',
-            )
-
-        # Используем промокод
-        if promo:
-            Promo.objects.filter(pk=promo.pk).update(used_count=models.F('used_count') + 1)
-
-        # Очищаем корзину
-        cart.items.all().delete()
-
-        # Запись в историю
-        OrderStatusHistory.objects.create(order=order, old_status=None, new_status=Order.Status.NEW)
-
-        return order

@@ -5,9 +5,10 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from apps.catalog.models import ProductVariant
+from apps.catalog.services import NotEnoughStockError as StockNotEnoughStockError
 from apps.catalog.services import StockService
 
-from .models import Cart, CartItem
+from .models import Cart, CartItem, Order, OrderItem, OrderStatusHistory
 
 
 class CartError(ValidationError):
@@ -27,6 +28,22 @@ class NotEnoughStockError(CartError):
 
 
 class InactiveVariantError(CartError):
+    pass
+
+
+class CheckoutError(ValidationError):
+    pass
+
+
+class EmptyCartError(CheckoutError):
+    pass
+
+
+class InactiveProductError(CheckoutError):
+    pass
+
+
+class InvalidCheckoutDataError(CheckoutError):
     pass
 
 
@@ -276,3 +293,159 @@ class CartService:
     def _ensure_stock_available(variant, quantity):
         if not StockService.check_availability(variant, quantity):
             raise NotEnoughStockError('Недостаточно товара на складе.')
+
+
+class CheckoutService:
+    required_fields = (
+        'customer_name',
+        'phone',
+        'email',
+        'delivery_method',
+    )
+
+    @classmethod
+    def checkout(
+        cls,
+        *,
+        cart,
+        user=None,
+        customer_name,
+        phone,
+        email,
+        city='',
+        delivery_address='',
+        delivery_method,
+        comment='',
+    ):
+        checkout_data = {
+            'customer_name': customer_name,
+            'phone': phone,
+            'email': email,
+            'city': city,
+            'delivery_address': delivery_address,
+            'delivery_method': delivery_method,
+            'comment': comment,
+        }
+        cls._validate_checkout_data(checkout_data)
+
+        with transaction.atomic():
+            locked_cart = Cart.objects.select_for_update().get(pk=cart.pk)
+            items = cls._get_locked_items(locked_cart)
+            if not items:
+                raise EmptyCartError('Корзина пуста.')
+
+            variants_by_id = cls._get_locked_variants(items)
+            order_items_data = []
+            total_amount = Decimal('0.00')
+
+            for item in items:
+                variant = variants_by_id[item.variant_id]
+                cls._ensure_variant_can_be_ordered(variant)
+                cls._ensure_stock_available(variant, item.quantity)
+
+                unit_price = cls.get_effective_price(variant)
+                total_price = unit_price * item.quantity
+                total_amount += total_price
+                order_items_data.append({
+                    'variant': variant,
+                    'product_name': variant.product.name,
+                    'product_slug': variant.product.slug,
+                    'sku': variant.sku,
+                    'size_name': variant.size.value if variant.size else '',
+                    'color_name': variant.color.name if variant.color else '',
+                    'unit_price': unit_price,
+                    'quantity': item.quantity,
+                    'total_price': total_price,
+                })
+
+            order = Order.objects.create(
+                user=user if user and user.is_authenticated else None,
+                customer_name=checkout_data['customer_name'],
+                phone=checkout_data['phone'],
+                email=checkout_data['email'],
+                city=checkout_data.get('city') or '',
+                delivery_address=checkout_data.get('delivery_address') or '',
+                delivery_method=checkout_data['delivery_method'],
+                total_amount=total_amount,
+                status=Order.Status.NEW,
+                payment_status=Order.PaymentStatus.UNPAID,
+                comment=checkout_data.get('comment') or '',
+            )
+
+            for item_data in order_items_data:
+                OrderItem.objects.create(order=order, **item_data)
+                cls._write_off_stock(
+                    variant=item_data['variant'],
+                    quantity=item_data['quantity'],
+                    user=user,
+                    order=order,
+                )
+
+            locked_cart.items.select_for_update().delete()
+            OrderStatusHistory.objects.create(
+                order=order,
+                old_status=None,
+                new_status=Order.Status.NEW,
+            )
+
+            return order
+
+    @staticmethod
+    def get_effective_price(variant):
+        return variant.variant_price if variant.variant_price is not None else variant.product.price
+
+    @classmethod
+    def _validate_checkout_data(cls, data):
+        for field in cls.required_fields:
+            if not data.get(field):
+                raise InvalidCheckoutDataError(f'Поле {field} обязательно.')
+        valid_delivery_methods = {choice for choice, _ in Order.DeliveryMethod.choices}
+        if data['delivery_method'] not in valid_delivery_methods:
+            raise InvalidCheckoutDataError('Некорректный способ доставки.')
+
+    @staticmethod
+    def _get_locked_items(cart):
+        return list(
+            CartItem.objects.select_for_update(of=('self',))
+            .filter(cart=cart)
+            .select_related('variant__product', 'variant__color', 'variant__size')
+            .order_by('id')
+        )
+
+    @staticmethod
+    def _get_locked_variants(items):
+        variant_ids = sorted({item.variant_id for item in items})
+        variants = (
+            ProductVariant.objects.select_for_update(of=('self',))
+            .select_related('product', 'color', 'size')
+            .filter(pk__in=variant_ids)
+            .order_by('id')
+        )
+        return {variant.id: variant for variant in variants}
+
+    @staticmethod
+    def _ensure_variant_can_be_ordered(variant):
+        if not variant.is_active:
+            raise InactiveVariantError('Вариант товара неактивен.')
+        if not variant.product.is_active:
+            raise InactiveProductError('Товар неактивен.')
+
+    @staticmethod
+    def _ensure_stock_available(variant, quantity):
+        if variant.stock_quantity < quantity:
+            raise NotEnoughStockError('Недостаточно товара на складе.')
+
+    @staticmethod
+    def _write_off_stock(*, variant, quantity, user, order):
+        try:
+            StockService.sale(
+                variant=variant,
+                quantity=quantity,
+                user=user if user and user.is_authenticated else None,
+                comment=f'Заказ #{order.order_number}',
+            )
+        except StockNotEnoughStockError as exc:
+            raise NotEnoughStockError('Недостаточно товара на складе.') from exc
+
+
+OrderCreateService = CheckoutService
