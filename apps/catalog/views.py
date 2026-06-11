@@ -1,4 +1,3 @@
-from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 from django.db.models import F, Prefetch
 from django.utils import timezone
@@ -415,7 +414,7 @@ class StockAdjustmentView(APIView):
                 user=request.user,
                 comment=comment,
             )
-        except ObjectDoesNotExist:
+        except ProductVariant.DoesNotExist:
             return Response({'detail': 'Вариант товара не найден.'}, status=status.HTTP_404_NOT_FOUND)
         except InvalidStockQuantityError as exc:
             detail = exc.messages[0] if hasattr(exc, 'messages') else str(exc)

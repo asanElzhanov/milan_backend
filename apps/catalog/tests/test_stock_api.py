@@ -112,6 +112,16 @@ class StockApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_stock_list_is_paginated(self):
+        self.authenticate_manager()
+
+        response = self.client.get(self.stock_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('results', response.data)
+        self.assertIn('count', response.data)
+        self.assertEqual(response.data['count'], 2)
+
     def test_stock_filter_by_product(self):
         self.authenticate_manager()
 
@@ -233,6 +243,17 @@ class StockApiTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.stock_quantity, 5)
+
+    def test_anonymous_cannot_adjust_stock(self):
+        response = self.client.post(
+            self.stock_adjust_url,
+            {'variant_id': self.variant.id, 'new_quantity': 8},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.variant.refresh_from_db()
         self.assertEqual(self.variant.stock_quantity, 5)
 
