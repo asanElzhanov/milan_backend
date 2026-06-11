@@ -285,9 +285,9 @@ class OrderListView(generics.ListAPIView):
 
 
 class OrderDetailView(generics.RetrieveAPIView):
-    """GET /orders/<number>/"""
+    """GET /orders/<order_number>/"""
     serializer_class = OrderSerializer
-    lookup_field = 'number'
+    lookup_field = 'order_number'
 
     def get_permissions(self):
         return [permissions.AllowAny()]

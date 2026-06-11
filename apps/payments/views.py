@@ -66,24 +66,24 @@ class StripeCreateIntentView(APIView):
     def post(self, request):
         order_number = request.data.get('order_number')
         try:
-            order = Order.objects.get(number=order_number)
+            order = Order.objects.get(order_number=order_number)
         except Order.DoesNotExist:
             return Response({'detail': 'Заказ не найден'}, status=404)
 
-        if order.status not in (Order.Status.PENDING, Order.Status.CONFIRMED):
+        if order.status not in (Order.Status.NEW, Order.Status.WAITING_PAYMENT):
             return Response({'detail': 'Заказ уже оплачен или отменён'}, status=400)
 
         intent = stripe.PaymentIntent.create(
-            amount=int(order.total * 100),  # в тиынах / центах
+            amount=int(order.total_amount * 100),  # в тиынах / центах
             currency='kzt',
-            metadata={'order_number': order.number},
+            metadata={'order_number': order.order_number},
         )
 
         Payment.objects.update_or_create(
             order=order,
             provider=Payment.Provider.STRIPE,
             defaults={
-                'amount': order.total,
+                'amount': order.total_amount,
                 'provider_payment_id': intent.id,
                 'status': Payment.Status.PENDING,
             }
@@ -137,7 +137,8 @@ class StripeWebhookView(APIView):
 
         order = payment.order
         order.status = Order.Status.PAID
-        order.save(update_fields=['status'])
+        order.payment_status = Order.PaymentStatus.PAID
+        order.save(update_fields=['status', 'payment_status', 'updated_at'])
 
         from apps.orders.models import OrderStatusHistory
         OrderStatusHistory.objects.create(order=order, status=Order.Status.PAID)
@@ -167,20 +168,20 @@ class KaspiCreateView(APIView):
     def post(self, request):
         order_number = request.data.get('order_number')
         try:
-            order = Order.objects.get(number=order_number)
+            order = Order.objects.get(order_number=order_number)
         except Order.DoesNotExist:
             return Response({'detail': 'Заказ не найден'}, status=404)
 
         # Kaspi Pay integration URL (упрощённо — реальная интеграция по документации Kaspi)
         merchant_id = settings.KASPI_MERCHANT_ID
-        amount = int(order.total)
-        redirect_url = f'https://kaspi.kz/online?OrderId={order.number}&Amount={amount}&MerchantId={merchant_id}'
+        amount = int(order.total_amount)
+        redirect_url = f'https://kaspi.kz/online?OrderId={order.order_number}&Amount={amount}&MerchantId={merchant_id}'
 
         Payment.objects.update_or_create(
             order=order,
             provider=Payment.Provider.KASPI,
             defaults={
-                'amount': order.total,
+                'amount': order.total_amount,
                 'status': Payment.Status.PENDING,
             }
         )
@@ -204,7 +205,7 @@ class KaspiWebhookView(APIView):
         tx_status = request.data.get('Status')  # 'success' | 'failed'
 
         try:
-            order = Order.objects.get(number=order_number)
+            order = Order.objects.get(order_number=order_number)
         except Order.DoesNotExist:
             return Response(status=404)
 
@@ -215,7 +216,8 @@ class KaspiWebhookView(APIView):
                 payment.status = Payment.Status.SUCCESS
                 payment.save()
             order.status = Order.Status.PAID
-            order.save(update_fields=['status'])
+            order.payment_status = Order.PaymentStatus.PAID
+            order.save(update_fields=['status', 'payment_status', 'updated_at'])
 
             from apps.notifications.tasks import send_order_paid_notification
             send_order_paid_notification.delay(order.id)

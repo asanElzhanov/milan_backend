@@ -47,4 +47,4 @@ class OrderStockServiceTests(TestCase):
         self.assertEqual(movement.variant, self.variant)
         self.assertEqual(movement.quantity, 2)
         self.assertEqual(movement.operation_type, StockMovement.OperationType.SALE)
-        self.assertIn(order.number, movement.comment)
+        self.assertIn(order.order_number, movement.comment)

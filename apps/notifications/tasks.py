@@ -16,12 +16,12 @@ def send_order_confirmation_email(self, order_id):
         from apps.orders.models import Order
         order = Order.objects.prefetch_related('items').get(pk=order_id)
 
-        subject = f'Ваш заказ #{order.number} принят'
+        subject = f'Ваш заказ #{order.order_number} принят'
         html_message = render_to_string('emails/order_confirmation.html', {'order': order})
 
         send_mail(
             subject=subject,
-            message=f'Ваш заказ #{order.number} принят. Сумма: {order.total} ₸',
+            message=f'Ваш заказ #{order.order_number} принят. Сумма: {order.total_amount} ₸',
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[order.email],
             html_message=html_message,
@@ -30,8 +30,8 @@ def send_order_confirmation_email(self, order_id):
 
         # Уведомление администратору
         send_mail(
-            subject=f'[Новый заказ] #{order.number} на {order.total} ₸',
-            message=f'Новый заказ от {order.first_name} {order.email}\nСумма: {order.total} ₸',
+            subject=f'[Новый заказ] #{order.order_number} на {order.total_amount} ₸',
+            message=f'Новый заказ от {order.customer_name} {order.email}\nСумма: {order.total_amount} ₸',
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[settings.DEFAULT_FROM_EMAIL],
             fail_silently=True,
@@ -48,8 +48,8 @@ def send_order_paid_notification(self, order_id):
         order = Order.objects.get(pk=order_id)
 
         send_mail(
-            subject=f'Оплата подтверждена — заказ #{order.number}',
-            message=f'Ваш заказ #{order.number} успешно оплачен. Мы начинаем его обрабатывать.',
+            subject=f'Оплата подтверждена — заказ #{order.order_number}',
+            message=f'Ваш заказ #{order.order_number} успешно оплачен. Мы начинаем его обрабатывать.',
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[order.email],
             fail_silently=False,
@@ -100,18 +100,18 @@ def send_order_status_update(order_id, new_status):
     order = Order.objects.get(pk=order_id)
 
     status_labels = {
-        'confirmed': 'подтверждён',
+        'waiting_payment': 'ожидает оплаты',
+        'paid': 'оплачен',
         'processing': 'в обработке',
         'shipped': 'отправлен',
-        'delivered': 'доставлен',
+        'completed': 'завершён',
     }
     label = status_labels.get(new_status, new_status)
 
     send_mail(
-        subject=f'Статус заказа #{order.number} обновлён',
-        message=f'Ваш заказ #{order.number} теперь {label}.',
+        subject=f'Статус заказа #{order.order_number} обновлён',
+        message=f'Ваш заказ #{order.order_number} теперь {label}.',
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[order.email],
         fail_silently=True,
     )
-

@@ -38,4 +38,4 @@ class Payment(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f'{self.order.number} — {self.provider} — {self.status}'
+        return f'{self.order.order_number} — {self.provider} — {self.status}'

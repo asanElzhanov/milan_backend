@@ -1,18 +1,24 @@
 from django.contrib import admin
-from .models import Order, OrderItem, Cart, CartItem
+from .models import Cart, Order, OrderItem
 
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
-    readonly_fields = ('product_name', 'product_sku', 'color_name', 'size_value', 'unit_price', 'total_price')
+    readonly_fields = (
+        'variant', 'product_name', 'product_slug', 'sku',
+        'size_name', 'color_name', 'unit_price', 'quantity', 'total_price',
+    )
+    can_delete = False
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ('number', 'first_name', 'email', 'total', 'status', 'delivery_method', 'created_at')
-    list_filter = ('status', 'delivery_method')
-    search_fields = ('number', 'email', 'phone', 'first_name')
-    readonly_fields = ('number', 'subtotal', 'total')
+    list_display = (
+        'order_number', 'customer_name', 'email', 'phone', 'total_amount',
+        'status', 'payment_status', 'delivery_method', 'created_at',
+    )
+    list_filter = ('status', 'payment_status', 'delivery_method', 'created_at')
+    search_fields = ('order_number', 'email', 'phone', 'customer_name')
+    readonly_fields = ('order_number', 'total_amount', 'created_at', 'updated_at')
     inlines = [OrderItemInline]
-    list_editable = ('status',)
 
 admin.site.register(Cart)

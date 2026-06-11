@@ -115,8 +115,9 @@ class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderItem
         fields = (
-            'id', 'product_name', 'product_sku', 'color_name',
-            'size_value', 'quantity', 'unit_price', 'total_price'
+            'id', 'product_name', 'product_slug', 'sku',
+            'size_name', 'color_name', 'unit_price',
+            'quantity', 'total_price',
         )
 
 
@@ -133,21 +134,22 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = (
-            'id', 'number', 'status',
-            'first_name', 'last_name', 'email', 'phone',
-            'delivery_method', 'delivery_address', 'delivery_city',
-            'delivery_country', 'tracking_number',
-            'subtotal', 'discount_amount', 'delivery_cost', 'total',
-            'promo_code', 'comment',
+            'id', 'order_number', 'user', 'customer_name', 'phone', 'email',
+            'city', 'delivery_address', 'delivery_method',
+            'total_amount', 'status', 'payment_status', 'comment',
             'items', 'status_history',
-            'created_at',
+            'created_at', 'updated_at',
         )
-        read_only_fields = ('number', 'status', 'subtotal', 'discount_amount', 'total')
+        read_only_fields = (
+            'order_number', 'user', 'total_amount', 'status',
+            'payment_status', 'created_at', 'updated_at',
+        )
 
 
 class OrderCreateSerializer(serializers.Serializer):
     """Создание заказа из корзины"""
-    first_name = serializers.CharField(max_length=100)
+    customer_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    first_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     email = serializers.EmailField()
     phone = serializers.CharField(max_length=30)
@@ -155,8 +157,9 @@ class OrderCreateSerializer(serializers.Serializer):
 
     delivery_method = serializers.ChoiceField(choices=Order.DeliveryMethod.choices)
     delivery_address = serializers.CharField(required=False, allow_blank=True)
-    delivery_city = serializers.CharField(required=False, allow_blank=True)
-    delivery_country = serializers.CharField(default='Казахстан')
+    city = serializers.CharField(required=False, allow_blank=True)
+    delivery_city = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    delivery_country = serializers.CharField(default='Казахстан', write_only=True)
     delivery_postal_code = serializers.CharField(required=False, allow_blank=True)
 
     promo_code = serializers.CharField(required=False, allow_blank=True)
@@ -164,8 +167,8 @@ class OrderCreateSerializer(serializers.Serializer):
     DELIVERY_COSTS = {
         Order.DeliveryMethod.COURIER: 1500,
         Order.DeliveryMethod.PICKUP: 0,
-        Order.DeliveryMethod.KAZPOST: 800,
-        Order.DeliveryMethod.DHL: 5000,
+        Order.DeliveryMethod.POST: 800,
+        Order.DeliveryMethod.OTHER: 0,
     }
 
     def validate(self, data):
@@ -182,6 +185,16 @@ class OrderCreateSerializer(serializers.Serializer):
                 data['promo'] = promo
             except Promo.DoesNotExist:
                 raise serializers.ValidationError({'promo_code': 'Промокод не найден'})
+
+        customer_name = data.get('customer_name', '').strip()
+        if not customer_name:
+            customer_name = f"{data.get('first_name', '').strip()} {data.get('last_name', '').strip()}".strip()
+        if not customer_name:
+            raise serializers.ValidationError({'customer_name': 'Укажите имя покупателя'})
+        data['customer_name'] = customer_name
+
+        if not data.get('city') and data.get('delivery_city'):
+            data['city'] = data['delivery_city']
 
         return data
 
@@ -202,12 +215,16 @@ class OrderCreateSerializer(serializers.Serializer):
 
         order = Order.objects.create(
             user=self.context.get('user'),
-            subtotal=subtotal,
-            discount_amount=discount_amount,
-            delivery_cost=delivery_cost,
-            total=total,
-            promo_code=promo.code if promo else '',
-            **{k: v for k, v in validated_data.items() if k != 'promo_code' or True},
+            customer_name=validated_data['customer_name'],
+            phone=validated_data['phone'],
+            email=validated_data['email'],
+            city=validated_data.get('city', ''),
+            delivery_address=validated_data.get('delivery_address', ''),
+            delivery_method=validated_data['delivery_method'],
+            total_amount=total,
+            status=Order.Status.NEW,
+            payment_status=Order.PaymentStatus.UNPAID,
+            comment=validated_data.get('comment', ''),
         )
 
         # Создаём позиции + уменьшаем остаток
@@ -215,12 +232,12 @@ class OrderCreateSerializer(serializers.Serializer):
             variant = item.variant
             OrderItem.objects.create(
                 order=order,
-                product=variant.product,
                 variant=variant,
                 product_name=variant.product.name,
-                product_sku=variant.product.sku,
+                product_slug=variant.product.slug,
+                sku=variant.sku,
+                size_name=variant.size.value if variant.size else '',
                 color_name=variant.color.name if variant.color else '',
-                size_value=variant.size.value if variant.size else '',
                 quantity=item.quantity,
                 unit_price=variant.final_price,
             )
@@ -228,7 +245,7 @@ class OrderCreateSerializer(serializers.Serializer):
                 variant=variant,
                 quantity=item.quantity,
                 user=self.context.get('user'),
-                comment=f'Заказ #{order.number}',
+                comment=f'Заказ #{order.order_number}',
             )
 
         # Используем промокод
@@ -239,6 +256,6 @@ class OrderCreateSerializer(serializers.Serializer):
         cart.items.all().delete()
 
         # Запись в историю
-        OrderStatusHistory.objects.create(order=order, status=Order.Status.PENDING)
+        OrderStatusHistory.objects.create(order=order, status=Order.Status.NEW)
 
         return order

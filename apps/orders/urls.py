@@ -16,5 +16,5 @@ urlpatterns = [
     # Orders
     path('', views.OrderCreateView.as_view(), name='order-create'),
     path('history/', views.OrderListView.as_view(), name='order-list'),
-    path('<str:number>/', views.OrderDetailView.as_view(), name='order-detail'),
+    path('<str:order_number>/', views.OrderDetailView.as_view(), name='order-detail'),
 ]
