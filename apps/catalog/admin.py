@@ -1,25 +1,155 @@
 from django.contrib import admin
+from django.db import models
+from django.db.models import Exists, OuterRef
 from mptt.admin import MPTTModelAdmin
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
     ProductMedia, ProductVariant, Promo, Review, Size,
 )
 
-@admin.register(Product)
-class ProductAdmin(admin.ModelAdmin):
-    list_display = ('name', 'sku', 'category', 'brand', 'price', 'old_price', 'is_active', 'is_new')
-    list_filter = ('is_active', 'is_new', 'category', 'brand', 'season')
-    search_fields = ('name', 'sku', 'description')
-    prepopulated_fields = {'slug': ('name',)}
-    list_editable = ('price', 'is_active', 'is_new')
 
-class ProductImageInline(admin.TabularInline):
-    model = ProductImage
-    extra = 1
+class ProductSaleFilter(admin.SimpleListFilter):
+    title = 'распродажа'
+    parameter_name = 'is_sale'
+
+    def lookups(self, request, model_admin):
+        return (
+            ('yes', 'Со скидкой'),
+            ('no', 'Без скидки'),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == 'yes':
+            return queryset.filter(old_price__isnull=False, old_price__gt=models.F('price'))
+        if self.value() == 'no':
+            return queryset.filter(models.Q(old_price__isnull=True) | models.Q(old_price__lte=models.F('price')))
+        return queryset
+
+
+class ProductStockFilter(admin.SimpleListFilter):
+    title = 'наличие'
+    parameter_name = 'in_stock'
+
+    def lookups(self, request, model_admin):
+        return (
+            ('yes', 'В наличии'),
+            ('no', 'Нет в наличии'),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == 'yes':
+            return queryset.filter(_admin_in_stock=True)
+        if self.value() == 'no':
+            return queryset.filter(_admin_in_stock=False)
+        return queryset
+
 
 class ProductVariantInline(admin.TabularInline):
     model = ProductVariant
+    fields = ('size', 'color', 'sku', 'stock_quantity', 'variant_price', 'is_active')
+    autocomplete_fields = ('size', 'color')
     extra = 1
+
+
+class ProductImageInline(admin.TabularInline):
+    model = ProductImage
+    fields = ('image', 'is_main', 'sort_order', 'alt_text', 'created_at', 'updated_at')
+    readonly_fields = ('created_at', 'updated_at')
+    extra = 1
+
+
+class ProductMediaInline(admin.TabularInline):
+    model = ProductMedia
+    fields = ('media_type', 'file', 'url', 'title', 'alt_text', 'sort_order', 'is_active', 'created_at', 'updated_at')
+    readonly_fields = ('created_at', 'updated_at')
+    extra = 0
+
+
+@admin.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = (
+        'name', 'slug', 'category', 'brand',
+        'price', 'old_price', 'discount_display',
+        'is_new', 'is_sale_display', 'is_active', 'in_stock_display',
+        'created_at', 'updated_at',
+    )
+    list_filter = ('category', 'brand', 'is_active', 'is_new', ProductSaleFilter, ProductStockFilter)
+    search_fields = ('name', 'slug', 'sku', 'variants__sku')
+    prepopulated_fields = {'slug': ('name',)}
+    list_editable = ('price', 'is_active', 'is_new')
+    readonly_fields = (
+        'created_at', 'updated_at',
+        'views_count', 'orders_count', 'rating', 'reviews_count',
+        'discount_display', 'is_sale_display', 'in_stock_display',
+    )
+    ordering = ('name',)
+    inlines = (ProductVariantInline, ProductImageInline, ProductMediaInline)
+    fieldsets = (
+        ('Основная информация', {
+            'fields': (
+                'sku', 'name', 'slug', 'category', 'brand',
+                'description', 'composition', 'material', 'season',
+            ),
+        }),
+        ('Цены и скидки', {
+            'fields': ('price', 'old_price', 'discount_display'),
+        }),
+        ('SEO', {
+            'fields': ('seo_title', 'seo_description', 'meta_title', 'meta_description'),
+        }),
+        ('Статусы', {
+            'fields': ('is_active', 'is_new', 'is_featured', 'is_sale_display', 'in_stock_display'),
+        }),
+        ('Системные поля', {
+            'fields': ('views_count', 'orders_count', 'rating', 'reviews_count', 'created_at', 'updated_at'),
+        }),
+    )
+
+    def get_queryset(self, request):
+        stock_variants = ProductVariant.objects.filter(
+            product=OuterRef('pk'),
+            is_active=True,
+            stock_quantity__gt=0,
+        )
+        return super().get_queryset(request).select_related('category', 'brand').annotate(
+            _admin_in_stock=Exists(stock_variants),
+        )
+
+    def get_search_results(self, request, queryset, search_term):
+        queryset, may_have_duplicates = super().get_search_results(request, queryset, search_term)
+        return queryset.distinct(), may_have_duplicates
+
+    @admin.display(description='скидка')
+    def discount_display(self, obj):
+        return f'{obj.discount}%' if obj.discount else '—'
+
+    @admin.display(boolean=True, description='распродажа')
+    def is_sale_display(self, obj):
+        return obj.is_sale
+
+    @admin.display(boolean=True, description='в наличии')
+    def in_stock_display(self, obj):
+        return getattr(obj, '_admin_in_stock', False)
+
+
+@admin.register(ProductVariant)
+class ProductVariantAdmin(admin.ModelAdmin):
+    list_display = ('product', 'sku', 'size', 'color', 'stock_quantity', 'variant_price', 'is_active', 'in_stock')
+    list_filter = ('is_active', 'size', 'color')
+    search_fields = ('sku', 'product__name', 'product__slug')
+    autocomplete_fields = ('product', 'size', 'color')
+    ordering = ('product__name', 'sku')
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(ProductImage)
+class ProductImageAdmin(admin.ModelAdmin):
+    list_display = ('product', 'image', 'is_main', 'sort_order', 'alt_text', 'created_at')
+    list_filter = ('is_main',)
+    search_fields = ('product__name', 'product__slug', 'alt_text')
+    autocomplete_fields = ('product',)
+    ordering = ('product__name', 'sort_order', 'id')
+    readonly_fields = ('created_at', 'updated_at')
 
 
 @admin.register(ProductMedia)
