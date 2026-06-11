@@ -2,7 +2,7 @@ from django.db import transaction
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem
-from apps.catalog.models import ProductVariant, Promo
+from apps.catalog.models import Promo
 from apps.catalog.serializers import ProductListSerializer
 from apps.catalog.services import StockService
 
@@ -51,19 +51,8 @@ class CartSerializer(serializers.ModelSerializer):
 
 
 class CartItemAddSerializer(serializers.Serializer):
-    variant_id = serializers.IntegerField()
+    variant_id = serializers.IntegerField(min_value=1)
     quantity = serializers.IntegerField(min_value=1, default=1)
-
-    def validate_variant_id(self, value):
-        try:
-            variant = ProductVariant.objects.select_related('product').get(pk=value)
-        except ProductVariant.DoesNotExist:
-            raise serializers.ValidationError('Вариант товара не найден')
-        if not variant.is_available:
-            raise serializers.ValidationError('Товар недоступен')
-        if not variant.product.is_active:
-            raise serializers.ValidationError('Товар недоступен')
-        return value
 
 
 class OrderItemSerializer(serializers.ModelSerializer):

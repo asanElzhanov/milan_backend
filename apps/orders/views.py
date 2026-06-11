@@ -1,15 +1,14 @@
-from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-import uuid
 
-from .models import Order, Cart, CartItem
+from .models import Order
 from .serializers import (
     CartSerializer, CartItemAddSerializer,
     OrderSerializer, OrderCreateSerializer,
 )
+from .services import CartError, CartService
 from apps.notifications.tasks import send_order_confirmation_email
 
 
@@ -26,21 +25,14 @@ CartItemQuantityUpdateSerializer = inline_serializer(
 def get_or_create_cart(request):
     """Получить корзину — для авторизованного по user, для гостя по token."""
     if request.user.is_authenticated:
-        cart, _ = Cart.objects.get_or_create(user=request.user, is_active=True)
-    else:
-        raw_token = request.headers.get('X-Cart-Token') or request.query_params.get('cart_token')
-        token = None
-        if raw_token:
-            try:
-                token = uuid.UUID(str(raw_token))
-            except ValueError:
-                token = None
+        return CartService.get_or_create_user_cart(request.user)
+    token = request.headers.get('X-Cart-Token') or request.query_params.get('cart_token')
+    return CartService.get_or_create_guest_cart(token=token)
 
-        if token:
-            cart, _ = Cart.objects.get_or_create(token=token, user=None, defaults={'is_active': True})
-        else:
-            cart = Cart.objects.create(user=None, is_active=True)
-    return cart
+
+def cart_error_response(exc):
+    detail = exc.messages[0] if hasattr(exc, 'messages') and exc.messages else str(exc)
+    return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
 
 
 # ── Корзина ──────────────────────────────────────────────────────────────────
@@ -55,7 +47,10 @@ class CartView(APIView):
         responses={200: CartSerializer},
     )
     def get(self, request):
-        cart = get_or_create_cart(request)
+        try:
+            cart = get_or_create_cart(request)
+        except CartError as exc:
+            return cart_error_response(exc)
         serializer = CartSerializer(cart)
         return Response(serializer.data)
 
@@ -73,17 +68,15 @@ class CartAddView(APIView):
     def post(self, request):
         serializer = CartItemAddSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        cart = get_or_create_cart(request)
-
-        item, created = CartItem.objects.get_or_create(
-            cart=cart,
-            variant_id=serializer.validated_data['variant_id'],
-            defaults={'quantity': serializer.validated_data['quantity']},
-        )
-        if not created:
-            item.quantity += serializer.validated_data['quantity']
-            item.save(update_fields=['quantity'])
-
+        try:
+            cart = get_or_create_cart(request)
+            _, cart = CartService.add_item(
+                cart=cart,
+                variant=serializer.validated_data['variant_id'],
+                quantity=serializer.validated_data['quantity'],
+            )
+        except CartError as exc:
+            return cart_error_response(exc)
         return Response(CartSerializer(cart).data, status=status.HTTP_200_OK)
 
 
@@ -102,13 +95,17 @@ class CartItemUpdateView(APIView):
         },
     )
     def patch(self, request, pk):
-        cart = get_or_create_cart(request)
-        item = get_object_or_404(CartItem, pk=pk, cart=cart)
-        quantity = request.data.get('quantity', 1)
-        if quantity < 1:
-            return Response({'detail': 'Количество должно быть >= 1'}, status=400)
-        item.quantity = quantity
-        item.save(update_fields=['quantity'])
+        serializer = CartItemQuantityUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            cart = get_or_create_cart(request)
+            _, cart = CartService.update_item(
+                cart=cart,
+                item_or_variant=pk,
+                quantity=serializer.validated_data['quantity'],
+            )
+        except CartError as exc:
+            return cart_error_response(exc)
         return Response(CartSerializer(cart).data)
 
 
@@ -122,8 +119,11 @@ class CartItemDeleteView(APIView):
         responses={200: CartSerializer},
     )
     def delete(self, request, pk):
-        cart = get_or_create_cart(request)
-        CartItem.objects.filter(pk=pk, cart=cart).delete()
+        try:
+            cart = get_or_create_cart(request)
+            cart = CartService.remove_item(cart=cart, item_or_variant=pk)
+        except CartError as exc:
+            return cart_error_response(exc)
         return Response(CartSerializer(cart).data)
 
 
@@ -137,8 +137,11 @@ class CartClearView(APIView):
         responses={200: OrderDetailResponseSerializer},
     )
     def delete(self, request):
-        cart = get_or_create_cart(request)
-        cart.items.all().delete()
+        try:
+            cart = get_or_create_cart(request)
+            CartService.clear_cart(cart)
+        except CartError as exc:
+            return cart_error_response(exc)
         return Response({'detail': 'Корзина очищена'})
 
 
@@ -155,7 +158,10 @@ class OrderCreateView(APIView):
         responses={201: OrderSerializer, 400: OpenApiResponse(description='Ошибка оформления заказа')},
     )
     def post(self, request):
-        cart = get_or_create_cart(request)
+        try:
+            cart = get_or_create_cart(request)
+        except CartError as exc:
+            return cart_error_response(exc)
         serializer = OrderCreateSerializer(
             data=request.data,
             context={
