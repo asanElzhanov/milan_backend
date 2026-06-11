@@ -1,6 +1,7 @@
 from decimal import Decimal
 import uuid
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -150,15 +151,36 @@ class OrderItem(models.Model):
 class OrderStatusHistory(models.Model):
     """История изменений статуса заказа"""
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='status_history')
-    status = models.CharField(max_length=20, choices=Order.Status.choices)
-    comment = models.TextField(blank=True)
-    created_by = models.ForeignKey(
-        'accounts.User', on_delete=models.SET_NULL, null=True, blank=True
+    old_status = models.CharField(
+        max_length=20,
+        choices=Order.Status.choices,
+        null=True,
+        blank=True,
     )
+    new_status = models.CharField(max_length=20, choices=Order.Status.choices)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='order_status_changes',
+    )
+    comment = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['order']),
+            models.Index(fields=['old_status']),
+            models.Index(fields=['new_status']),
+            models.Index(fields=['changed_by']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        old_status = self.old_status or 'initial'
+        return f'{self.order.order_number}: {old_status} -> {self.new_status}'
 
 
 class Cart(models.Model):

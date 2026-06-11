@@ -124,7 +124,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderStatusHistorySerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderStatusHistory
-        fields = ('status', 'comment', 'created_at')
+        fields = ('old_status', 'new_status', 'changed_by', 'comment', 'created_at')
 
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -256,6 +256,6 @@ class OrderCreateSerializer(serializers.Serializer):
         cart.items.all().delete()
 
         # Запись в историю
-        OrderStatusHistory.objects.create(order=order, status=Order.Status.NEW)
+        OrderStatusHistory.objects.create(order=order, old_status=None, new_status=Order.Status.NEW)
 
         return order

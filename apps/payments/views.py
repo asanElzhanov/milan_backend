@@ -136,12 +136,17 @@ class StripeWebhookView(APIView):
         payment.save()
 
         order = payment.order
+        old_status = order.status
         order.status = Order.Status.PAID
         order.payment_status = Order.PaymentStatus.PAID
         order.save(update_fields=['status', 'payment_status', 'updated_at'])
 
         from apps.orders.models import OrderStatusHistory
-        OrderStatusHistory.objects.create(order=order, status=Order.Status.PAID)
+        OrderStatusHistory.objects.create(
+            order=order,
+            old_status=old_status,
+            new_status=Order.Status.PAID,
+        )
 
         from apps.notifications.tasks import send_order_paid_notification
         send_order_paid_notification.delay(order.id)
