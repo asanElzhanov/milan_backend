@@ -124,23 +124,33 @@ class OrderStatusHistorySerializer(serializers.ModelSerializer):
         fields = ('old_status', 'new_status', 'changed_by', 'comment', 'created_at')
 
 
-class OrderSerializer(serializers.ModelSerializer):
+class OrderListSerializer(serializers.ModelSerializer):
+    items_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Order
+        fields = (
+            'order_number', 'status', 'payment_status',
+            'total_amount', 'items_count', 'created_at',
+        )
+
+
+class OrderDetailSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     status_history = OrderStatusHistorySerializer(many=True, read_only=True)
 
     class Meta:
         model = Order
         fields = (
-            'id', 'order_number', 'user', 'customer_name', 'phone', 'email',
+            'order_number', 'customer_name', 'phone', 'email',
             'city', 'delivery_address', 'delivery_method',
             'total_amount', 'status', 'payment_status', 'comment',
             'items', 'status_history',
-            'created_at', 'updated_at',
+            'created_at',
         )
-        read_only_fields = (
-            'order_number', 'user', 'total_amount', 'status',
-            'payment_status', 'created_at', 'updated_at',
-        )
+
+
+OrderSerializer = OrderDetailSerializer
 
 
 class CheckoutSerializer(serializers.Serializer):

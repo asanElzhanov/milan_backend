@@ -1,4 +1,4 @@
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema, inline_serializer
 from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
@@ -13,6 +13,8 @@ from .serializers import (
     CartMergeSerializer,
     CartSerializer,
     CheckoutSerializer,
+    OrderDetailSerializer,
+    OrderListSerializer,
     OrderCreateSerializer,
     OrderSerializer,
 )
@@ -84,6 +86,31 @@ def cart_error_response(exc):
 
 def load_order_for_response(order):
     return Order.objects.prefetch_related('items', 'status_history').get(pk=order.pk)
+
+
+def checkout_response(request):
+    try:
+        cart = get_current_cart(request)
+    except CartError as exc:
+        return cart_error_response(exc)
+    serializer = OrderCreateSerializer(
+        data=request.data,
+        context={
+            'cart': cart,
+            'user': request.user if request.user.is_authenticated else None,
+        }
+    )
+    serializer.is_valid(raise_exception=True)
+    try:
+        order = serializer.save()
+    except (CartError, CheckoutError) as exc:
+        return cart_error_response(exc)
+    order = load_order_for_response(order)
+
+    # Отправить email подтверждение через Celery
+    send_order_confirmation_email.delay(order.id)
+
+    return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
 
 
 # ── Корзина ──────────────────────────────────────────────────────────────────
@@ -257,69 +284,77 @@ class CheckoutView(APIView):
         responses={201: OrderSerializer, 400: OpenApiResponse(description='Ошибка оформления заказа')},
     )
     def post(self, request):
-        try:
-            cart = get_current_cart(request)
-        except CartError as exc:
-            return cart_error_response(exc)
-        serializer = OrderCreateSerializer(
-            data=request.data,
-            context={
-                'cart': cart,
-                'user': request.user if request.user.is_authenticated else None,
-            }
-        )
-        serializer.is_valid(raise_exception=True)
-        try:
-            order = serializer.save()
-        except (CartError, CheckoutError) as exc:
-            return cart_error_response(exc)
-        order = load_order_for_response(order)
-
-        # Отправить email подтверждение через Celery
-        send_order_confirmation_email.delay(order.id)
-
-        return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
-
-
-class OrderCreateView(CheckoutView):
-    """POST /orders/ — backward-compatible checkout alias"""
-    pass
+        return checkout_response(request)
 
 
 class OrderListView(generics.ListAPIView):
     """GET /orders/ — история заказов пользователя"""
-    serializer_class = OrderSerializer
+    serializer_class = OrderListSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Order.objects.none()
-        return Order.objects.filter(user=self.request.user).prefetch_related('items')
+        queryset = (
+            Order.objects.filter(user=self.request.user)
+            .annotate(items_count=Count('items'))
+            .order_by('-created_at')
+        )
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        return queryset
 
     @extend_schema(
         tags=['Orders'],
         summary='История заказов пользователя',
-        responses={200: OrderSerializer(many=True)},
+        parameters=[
+            OpenApiParameter(
+                'status',
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                enum=[choice[0] for choice in Order.Status.choices],
+            ),
+        ],
+        responses={200: OrderListSerializer(many=True)},
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
 
 
+class OrderCreateView(OrderListView):
+    """GET /orders/ — история; POST /orders/ — backward-compatible checkout alias"""
+
+    @extend_schema(
+        tags=['Orders'],
+        summary='Оформить заказ',
+        parameters=[CartTokenHeader],
+        request=CheckoutSerializer,
+        responses={201: OrderSerializer, 400: OpenApiResponse(description='Ошибка оформления заказа')},
+    )
+    def post(self, request):
+        return checkout_response(request)
+
+
 class OrderDetailView(generics.RetrieveAPIView):
     """GET /orders/<order_number>/"""
-    serializer_class = OrderSerializer
+    serializer_class = OrderDetailSerializer
+    permission_classes = [permissions.IsAuthenticated]
     lookup_field = 'order_number'
 
-    def get_permissions(self):
-        return [permissions.AllowAny()]
-
     def get_queryset(self):
-        return Order.objects.prefetch_related('items', 'status_history')
+        if getattr(self, 'swagger_fake_view', False):
+            return Order.objects.none()
+        return (
+            Order.objects.filter(user=self.request.user)
+            .select_related('user')
+            .prefetch_related('items', 'status_history')
+        )
 
     @extend_schema(
         tags=['Orders'],
         summary='Детали заказа по номеру',
-        responses={200: OrderSerializer, 404: OpenApiResponse(description='Заказ не найден')},
+        responses={200: OrderDetailSerializer, 404: OpenApiResponse(description='Заказ не найден')},
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
