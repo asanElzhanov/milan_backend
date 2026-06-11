@@ -1,0 +1,173 @@
+from decimal import Decimal
+
+from django.test import TestCase
+from django.urls import reverse
+
+from apps.accounts.models import User
+from apps.catalog.models import Brand, Category, Product, ProductVariant, StockMovement
+from apps.orders.models import Cart, CartItem, Order, OrderItem, OrderStatusHistory
+from apps.orders.services import CheckoutService
+
+
+class OrderAdminTests(TestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_superuser(
+            email='orders-admin@example.com',
+            password='secret123',
+        )
+        self.user = User.objects.create_user(email='order-customer@example.com')
+        self.client.force_login(self.admin_user)
+
+        category = Category.objects.create(name='Shoes', slug='order-admin-shoes')
+        brand = Brand.objects.create(name='Nike', slug='order-admin-nike')
+        product = Product.objects.create(
+            sku='SKU-ORDER-ADMIN',
+            name='Order Admin Product',
+            slug='order-admin-product',
+            category=category,
+            brand=brand,
+            price=Decimal('100.00'),
+        )
+        self.variant = ProductVariant.objects.create(
+            product=product,
+            sku='VAR-ORDER-ADMIN',
+            stock_quantity=5,
+        )
+        cart = Cart.objects.create(user=self.user, token=None)
+        CartItem.objects.create(cart=cart, variant=self.variant, quantity=2)
+        self.order = CheckoutService.checkout(
+            cart=cart,
+            user=self.user,
+            customer_name='Order Customer',
+            phone='+77011234567',
+            email='customer@example.com',
+            city='Almaty',
+            delivery_address='Abay 10',
+            delivery_method=Order.DeliveryMethod.COURIER,
+            comment='Admin test',
+        )
+
+    def change_url(self):
+        return reverse('admin:orders_order_change', args=[self.order.pk])
+
+    def order_post_data(self, status_value=None, item_quantity=None):
+        item = self.order.items.get()
+        history = self.order.status_history.first()
+        return {
+            'user': self.user.pk,
+            'customer_name': self.order.customer_name,
+            'phone': self.order.phone,
+            'email': self.order.email,
+            'city': self.order.city,
+            'delivery_address': self.order.delivery_address,
+            'delivery_method': self.order.delivery_method,
+            'status': status_value or self.order.status,
+            'payment_status': self.order.payment_status,
+            'comment': self.order.comment,
+            'items-TOTAL_FORMS': '1',
+            'items-INITIAL_FORMS': '1',
+            'items-MIN_NUM_FORMS': '0',
+            'items-MAX_NUM_FORMS': '0',
+            'items-0-id': item.pk,
+            'items-0-order': self.order.pk,
+            'items-0-quantity': item_quantity if item_quantity is not None else item.quantity,
+            'status_history-TOTAL_FORMS': '1',
+            'status_history-INITIAL_FORMS': '1',
+            'status_history-MIN_NUM_FORMS': '0',
+            'status_history-MAX_NUM_FORMS': '0',
+            'status_history-0-id': history.pk,
+            'status_history-0-order': self.order.pk,
+            '_save': 'Save',
+        }
+
+    def test_order_admin_changelist_opens_and_searches_by_item_sku(self):
+        response = self.client.get(
+            reverse('admin:orders_order_changelist'),
+            {'q': 'VAR-ORDER-ADMIN'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.order.order_number)
+        self.assertContains(response, 'Order Customer')
+
+    def test_order_admin_change_status_uses_service_and_creates_history(self):
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.stock_quantity, 3)
+
+        response = self.client.post(
+            self.change_url(),
+            self.order_post_data(status_value=Order.Status.CANCELLED),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.order.refresh_from_db()
+        self.variant.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.CANCELLED)
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.CANCELLED)
+        self.assertEqual(self.variant.stock_quantity, 5)
+
+        history = OrderStatusHistory.objects.latest('created_at')
+        self.assertEqual(history.order, self.order)
+        self.assertEqual(history.old_status, Order.Status.NEW)
+        self.assertEqual(history.new_status, Order.Status.CANCELLED)
+        self.assertEqual(history.changed_by, self.admin_user)
+
+        movement = StockMovement.objects.latest('created_at')
+        self.assertEqual(movement.operation_type, StockMovement.OperationType.ORDER_CANCEL)
+        self.assertEqual(movement.user, self.admin_user)
+
+    def test_order_item_inline_is_readonly(self):
+        response = self.client.post(
+            self.change_url(),
+            self.order_post_data(item_quantity='99'),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        item = OrderItem.objects.get(order=self.order)
+        self.assertEqual(item.quantity, 2)
+
+    def test_order_item_admin_is_read_only(self):
+        item = self.order.items.get()
+
+        response = self.client.post(
+            reverse('admin:orders_orderitem_change', args=[item.pk]),
+            {
+                'order': self.order.pk,
+                'variant': self.variant.pk,
+                'product_name': 'Changed',
+                'quantity': 99,
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        item.refresh_from_db()
+        self.assertEqual(item.product_name, 'Order Admin Product')
+        self.assertEqual(item.quantity, 2)
+
+    def test_order_status_history_admin_is_read_only(self):
+        history = self.order.status_history.first()
+
+        response = self.client.post(
+            reverse('admin:orders_orderstatushistory_change', args=[history.pk]),
+            {
+                'old_status': Order.Status.NEW,
+                'new_status': Order.Status.PROCESSING,
+                'comment': 'Changed',
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        history.refresh_from_db()
+        self.assertEqual(history.new_status, Order.Status.NEW)
+        self.assertEqual(history.comment, '')
+
+    def test_order_status_history_admin_cannot_delete(self):
+        history = self.order.status_history.first()
+
+        response = self.client.post(
+            reverse('admin:orders_orderstatushistory_delete', args=[history.pk]),
+            {'post': 'yes'},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(OrderStatusHistory.objects.filter(pk=history.pk).exists())
