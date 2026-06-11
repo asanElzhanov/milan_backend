@@ -72,9 +72,11 @@ class ProductMediaSerializer(serializers.ModelSerializer):
 class ProductVariantSerializer(serializers.ModelSerializer):
     color = ColorSerializer()
     size = SizeSerializer()
+    active = serializers.BooleanField(source='is_active', read_only=True)
     stock = serializers.IntegerField(source='stock_quantity', read_only=True)
     sku_variant = serializers.CharField(source='sku', read_only=True)
     extra_price = serializers.SerializerMethodField()
+    effective_price = serializers.ReadOnlyField(source='final_price')
     in_stock = serializers.ReadOnlyField()
     is_available = serializers.ReadOnlyField()
     final_price = serializers.ReadOnlyField()
@@ -83,9 +85,9 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         model = ProductVariant
         fields = (
             'id', 'color', 'size',
-            'sku', 'stock_quantity', 'variant_price', 'is_active',
+            'sku', 'stock_quantity', 'variant_price', 'active', 'is_active',
             'stock', 'sku_variant', 'extra_price',
-            'in_stock', 'is_available', 'final_price',
+            'effective_price', 'in_stock', 'is_available', 'final_price',
         )
 
     @extend_schema_field(OpenApiTypes.DECIMAL)
@@ -224,9 +226,11 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     brand = BrandSerializer(read_only=True)
     category = CategorySerializer(read_only=True)
     reviews = serializers.SerializerMethodField()
+    reviews_count = serializers.SerializerMethodField()
     discount_percent = serializers.ReadOnlyField()
     discount = serializers.ReadOnlyField()
     is_sale = serializers.ReadOnlyField()
+    average_rating = serializers.SerializerMethodField()
     available_sizes = serializers.SerializerMethodField()
     available_colors = serializers.SerializerMethodField()
 
@@ -239,8 +243,8 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             'price', 'old_price', 'discount', 'discount_percent', 'is_sale',
             'images', 'media', 'videos', 'variants',
             'available_sizes', 'available_colors',
-            'rating', 'reviews_count', 'reviews',
-            'is_new', 'is_featured',
+            'rating', 'average_rating', 'reviews_count', 'reviews',
+            'is_new', 'is_featured', 'is_active',
             'seo_title', 'seo_description', 'meta_title', 'meta_description',
             'created_at',
         )
@@ -254,34 +258,58 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(ProductMediaSerializer(many=True))
     def get_media(self, obj):
+        media = getattr(obj, 'active_media', None)
+        if media is None:
+            media = obj.media.filter(is_active=True)
         return ProductMediaSerializer(
-            obj.media.filter(is_active=True),
+            media,
             many=True,
             context=self.context,
         ).data
 
     @extend_schema_field(ReviewSerializer(many=True))
     def get_reviews(self, obj):
-        qs = obj.reviews.filter(is_approved=True)[:5]
-        return ReviewSerializer(qs, many=True).data
+        reviews = getattr(obj, 'approved_reviews', None)
+        if reviews is None:
+            reviews = obj.reviews.filter(is_approved=True).select_related('user').prefetch_related('images')
+        return ReviewSerializer(list(reviews)[:5], many=True).data
+
+    @extend_schema_field(OpenApiTypes.FLOAT)
+    def get_average_rating(self, obj):
+        reviews = getattr(obj, 'approved_reviews', None)
+        if reviews is not None:
+            ratings = [review.rating for review in reviews]
+            if not ratings:
+                return None
+            return round(sum(ratings) / len(ratings), 2)
+        if obj.reviews_count:
+            return obj.rating
+        return None
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_reviews_count(self, obj):
+        reviews = getattr(obj, 'approved_reviews', None)
+        if reviews is not None:
+            return len(reviews)
+        return obj.reviews.filter(is_approved=True).count()
 
     @extend_schema_field(SizeSerializer(many=True))
     def get_available_sizes(self, obj):
-        sizes = Size.objects.filter(
-            productvariant__product=obj,
-            productvariant__stock_quantity__gt=0,
-            productvariant__is_active=True,
-        ).distinct()
-        return SizeSerializer(sizes, many=True).data
+        sizes = {}
+        for variant in obj.variants.all():
+            if variant.is_active and variant.size:
+                sizes[variant.size.id] = variant.size
+        ordered_sizes = sorted(sizes.values(), key=lambda size: (size.size_type, size.sort_order, size.value))
+        return SizeSerializer(ordered_sizes, many=True).data
 
     @extend_schema_field(ColorSerializer(many=True))
     def get_available_colors(self, obj):
-        colors = Color.objects.filter(
-            productvariant__product=obj,
-            productvariant__stock_quantity__gt=0,
-            productvariant__is_active=True,
-        ).distinct()
-        return ColorSerializer(colors, many=True).data
+        colors = {}
+        for variant in obj.variants.all():
+            if variant.is_active and variant.color:
+                colors[variant.color.id] = variant.color
+        ordered_colors = sorted(colors.values(), key=lambda color: color.name)
+        return ColorSerializer(ordered_colors, many=True).data
 
 
 class BannerSerializer(serializers.ModelSerializer):

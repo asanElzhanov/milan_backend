@@ -7,7 +7,10 @@ from rest_framework import filters, generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Banner, Brand, Category, Color, Product, ProductImage, ProductVariant, Promo, Review, Size
+from .models import (
+    Banner, Brand, Category, Color, Product, ProductImage,
+    ProductMedia, ProductVariant, Promo, Review, Size,
+)
 from .serializers import (
     CategorySerializer, CategoryTreeSerializer, BrandSerializer, ColorSerializer, SizeSerializer,
     ProductListSerializer, ProductDetailSerializer,
@@ -275,7 +278,17 @@ class ProductDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         return Product.objects.filter(is_active=True).select_related(
             'category', 'brand'
-        ).prefetch_related('images', 'media', 'videos', 'variants__color', 'variants__size', 'reviews__user')
+        ).prefetch_related(
+            Prefetch('images', queryset=ProductImage.objects.order_by('sort_order', 'id')),
+            Prefetch('media', queryset=ProductMedia.objects.filter(is_active=True).order_by('sort_order', 'id'), to_attr='active_media'),
+            'videos',
+            Prefetch('variants', queryset=ProductVariant.objects.select_related('color', 'size').order_by('id')),
+            Prefetch(
+                'reviews',
+                queryset=Review.objects.filter(is_approved=True).select_related('user').prefetch_related('images').order_by('-created_at'),
+                to_attr='approved_reviews',
+            ),
+        )
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
