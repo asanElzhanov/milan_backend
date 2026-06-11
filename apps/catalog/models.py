@@ -423,6 +423,62 @@ class ProductVariant(models.Model):
             raise ValidationError(errors)
 
 
+class StockMovement(models.Model):
+    """Append-only журнал движений остатков по варианту товара."""
+    class OperationType(models.TextChoices):
+        INCOME = 'income', _('Приход')
+        SALE = 'sale', _('Продажа')
+        RETURN = 'return', _('Возврат')
+        MANUAL_ADJUSTMENT = 'manual_adjustment', _('Ручная корректировка')
+        ORDER_CANCEL = 'order_cancel', _('Отмена заказа')
+
+    variant = models.ForeignKey(
+        ProductVariant,
+        on_delete=models.PROTECT,
+        related_name='stock_movements',
+        verbose_name=_('вариант товара'),
+    )
+    quantity = models.PositiveIntegerField(
+        _('количество'),
+        validators=[MinValueValidator(1)],
+    )
+    operation_type = models.CharField(
+        _('тип операции'),
+        max_length=32,
+        choices=OperationType.choices,
+    )
+    user = models.ForeignKey(
+        'accounts.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='stock_movements',
+        verbose_name=_('пользователь'),
+    )
+    comment = models.TextField(_('комментарий'), blank=True)
+    created_at = models.DateTimeField(_('создано'), auto_now_add=True)
+
+    class Meta:
+        verbose_name = _('движение остатка')
+        verbose_name_plural = _('движения остатков')
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['variant']),
+            models.Index(fields=['operation_type']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['user']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(quantity__gt=0),
+                name='stock_movement_quantity_positive',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.variant.sku} | {self.operation_type} | {self.quantity}'
+
+
 class Review(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='reviews')
     user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, related_name='reviews')
