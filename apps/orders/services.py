@@ -47,6 +47,14 @@ class InvalidCheckoutDataError(CheckoutError):
     pass
 
 
+class OrderStatusError(ValidationError):
+    pass
+
+
+class InvalidOrderStatusTransitionError(OrderStatusError):
+    pass
+
+
 class CartService:
     @classmethod
     def get_or_create_guest_cart(cls, token=None):
@@ -449,3 +457,136 @@ class CheckoutService:
 
 
 OrderCreateService = CheckoutService
+
+
+class OrderStatusService:
+    allowed_transitions = {
+        Order.Status.NEW: {Order.Status.WAITING_PAYMENT, Order.Status.PAID, Order.Status.CANCELLED},
+        Order.Status.WAITING_PAYMENT: {Order.Status.PAID, Order.Status.CANCELLED},
+        Order.Status.PAID: {Order.Status.PROCESSING, Order.Status.CANCELLED},
+        Order.Status.PROCESSING: {Order.Status.SHIPPED, Order.Status.CANCELLED},
+        Order.Status.SHIPPED: {Order.Status.COMPLETED},
+        Order.Status.COMPLETED: {Order.Status.RETURNED},
+        Order.Status.CANCELLED: set(),
+        Order.Status.RETURNED: set(),
+    }
+    cancellable_statuses = {
+        Order.Status.NEW,
+        Order.Status.WAITING_PAYMENT,
+        Order.Status.PAID,
+        Order.Status.PROCESSING,
+    }
+
+    @classmethod
+    def change_status(cls, order, new_status, changed_by=None, comment=''):
+        cls._validate_status(new_status)
+        with transaction.atomic():
+            locked_order = cls._lock_order(order)
+            old_status = locked_order.status
+            if old_status == new_status:
+                return locked_order
+            cls._ensure_transition_allowed(old_status, new_status)
+            locked_order.status = new_status
+            locked_order.save(update_fields=['status', 'updated_at'])
+            cls._create_history(
+                order=locked_order,
+                old_status=old_status,
+                new_status=new_status,
+                changed_by=changed_by,
+                comment=comment,
+            )
+            return locked_order
+
+    @classmethod
+    def cancel_order(cls, order, changed_by=None, comment=''):
+        with transaction.atomic():
+            locked_order = cls._lock_order(order)
+            old_status = locked_order.status
+            if old_status == Order.Status.CANCELLED:
+                return locked_order
+            if old_status not in cls.cancellable_statuses:
+                raise InvalidOrderStatusTransitionError(
+                    f'Нельзя отменить заказ из статуса {old_status}.'
+                )
+
+            cls._return_order_stock(locked_order, changed_by=changed_by)
+            locked_order.status = Order.Status.CANCELLED
+            locked_order.payment_status = Order.PaymentStatus.CANCELLED
+            locked_order.save(update_fields=['status', 'payment_status', 'updated_at'])
+            cls._create_history(
+                order=locked_order,
+                old_status=old_status,
+                new_status=Order.Status.CANCELLED,
+                changed_by=changed_by,
+                comment=comment,
+            )
+            return locked_order
+
+    @classmethod
+    def mark_paid(cls, order, changed_by=None, comment=''):
+        with transaction.atomic():
+            locked_order = cls._lock_order(order)
+            old_status = locked_order.status
+            if old_status not in {Order.Status.NEW, Order.Status.WAITING_PAYMENT, Order.Status.PAID}:
+                raise InvalidOrderStatusTransitionError(
+                    f'Нельзя отметить оплаченным заказ из статуса {old_status}.'
+                )
+
+            locked_order.payment_status = Order.PaymentStatus.PAID
+            update_fields = ['payment_status', 'updated_at']
+            if old_status != Order.Status.PAID:
+                locked_order.status = Order.Status.PAID
+                update_fields.append('status')
+            locked_order.save(update_fields=update_fields)
+
+            if old_status != Order.Status.PAID:
+                cls._create_history(
+                    order=locked_order,
+                    old_status=old_status,
+                    new_status=Order.Status.PAID,
+                    changed_by=changed_by,
+                    comment=comment,
+                )
+            return locked_order
+
+    @classmethod
+    def _lock_order(cls, order):
+        order_id = order.pk if isinstance(order, Order) else order
+        return (
+            Order.objects.select_for_update()
+            .prefetch_related('items__variant')
+            .get(pk=order_id)
+        )
+
+    @staticmethod
+    def _validate_status(status):
+        valid_statuses = {choice for choice, _ in Order.Status.choices}
+        if status not in valid_statuses:
+            raise InvalidOrderStatusTransitionError('Некорректный статус заказа.')
+
+    @classmethod
+    def _ensure_transition_allowed(cls, old_status, new_status):
+        if new_status not in cls.allowed_transitions.get(old_status, set()):
+            raise InvalidOrderStatusTransitionError(
+                f'Недопустимый переход статуса {old_status} -> {new_status}.'
+            )
+
+    @staticmethod
+    def _create_history(*, order, old_status, new_status, changed_by=None, comment=''):
+        return OrderStatusHistory.objects.create(
+            order=order,
+            old_status=old_status,
+            new_status=new_status,
+            changed_by=changed_by if changed_by and changed_by.is_authenticated else None,
+            comment=comment,
+        )
+
+    @staticmethod
+    def _return_order_stock(order, changed_by=None):
+        for item in order.items.all():
+            StockService.cancel_order(
+                variant=item.variant,
+                quantity=item.quantity,
+                user=changed_by if changed_by and changed_by.is_authenticated else None,
+                comment=f'Отмена заказа #{order.order_number}',
+            )

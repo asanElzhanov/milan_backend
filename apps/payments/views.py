@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from rest_framework import serializers
 
 from apps.orders.models import Order
+from apps.orders.services import OrderStatusService
 from .models import Payment
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -135,18 +136,7 @@ class StripeWebhookView(APIView):
         payment.provider_data = raw_data
         payment.save()
 
-        order = payment.order
-        old_status = order.status
-        order.status = Order.Status.PAID
-        order.payment_status = Order.PaymentStatus.PAID
-        order.save(update_fields=['status', 'payment_status', 'updated_at'])
-
-        from apps.orders.models import OrderStatusHistory
-        OrderStatusHistory.objects.create(
-            order=order,
-            old_status=old_status,
-            new_status=Order.Status.PAID,
-        )
+        order = OrderStatusService.mark_paid(payment.order)
 
         from apps.notifications.tasks import send_order_paid_notification
         send_order_paid_notification.delay(order.id)
@@ -220,9 +210,7 @@ class KaspiWebhookView(APIView):
             if payment:
                 payment.status = Payment.Status.SUCCESS
                 payment.save()
-            order.status = Order.Status.PAID
-            order.payment_status = Order.PaymentStatus.PAID
-            order.save(update_fields=['status', 'payment_status', 'updated_at'])
+            order = OrderStatusService.mark_paid(order)
 
             from apps.notifications.tasks import send_order_paid_notification
             send_order_paid_notification.delay(order.id)
