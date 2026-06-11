@@ -107,7 +107,9 @@ class ProductFilter(django_filters.FilterSet):
             is_active=True,
         )
         if value.isdigit():
-            variants = variants.filter(models.Q(size_id=value) | models.Q(size__value=value))
+            variants = variants.filter(
+                models.Q(size_id=value) | models.Q(size__value=value)
+            )
         else:
             variants = variants.filter(size__value=value)
         return queryset.filter(Exists(variants))
@@ -120,7 +122,10 @@ class ProductFilter(django_filters.FilterSet):
     def filter_is_sale(self, queryset, name, value):
         if value:
             return queryset.filter(old_price__isnull=False, old_price__gt=models.F('price'))
-        return queryset.filter(models.Q(old_price__isnull=True) | models.Q(old_price__lte=models.F('price')))
+        return queryset.filter(
+            models.Q(old_price__isnull=True)
+            | models.Q(old_price__lte=models.F('price'))
+        )
 
     def filter_has_discount(self, queryset, name, value):
         return self.filter_is_sale(queryset, name, value)
