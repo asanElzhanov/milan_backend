@@ -1,9 +1,12 @@
 from decimal import Decimal
 
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.catalog.models import Brand, Category, Color, Product, ProductVariant, Size
+from apps.catalog.models import Brand, Category, Color, Product, ProductImage, ProductVariant, Size
 from apps.orders.models import Cart, CartItem
 from apps.orders.services import CartService
 
@@ -190,3 +193,24 @@ class GuestCartApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('detail', response.data)
+
+    def test_get_cart_uses_bounded_number_of_queries(self):
+        ProductImage.objects.create(
+            product=self.product,
+            image=SimpleUploadedFile('cart-main.jpg', b'image content', content_type='image/jpeg'),
+            is_main=True,
+        )
+        token, _, _ = self.create_cart_with_item(quantity=1)
+        self.client.post(
+            self.items_url(),
+            {'variant_id': self.other_variant.id, 'quantity': 1},
+            format='json',
+            **self.auth_headers(token),
+        )
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(self.cart_url(), **self.auth_headers(token))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['items']), 2)
+        self.assertLessEqual(len(captured), 4)

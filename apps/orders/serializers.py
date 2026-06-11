@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db import models, transaction
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem

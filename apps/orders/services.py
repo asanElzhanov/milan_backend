@@ -129,10 +129,14 @@ class CartService:
 
     @classmethod
     def recalculate_cart(cls, cart):
-        items = list(
-            cart.items.select_related('variant__product')
-            .order_by('id')
-        )
+        prefetched_items = getattr(cart, '_prefetched_objects_cache', {}).get('items')
+        if prefetched_items is not None:
+            items = list(prefetched_items)
+        else:
+            items = list(
+                cart.items.select_related('variant__product')
+                .order_by('id')
+            )
         total_quantity = sum(item.quantity for item in items)
         subtotal = sum(
             cls.get_effective_price(item.variant) * item.quantity

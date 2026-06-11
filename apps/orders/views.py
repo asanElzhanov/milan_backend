@@ -8,8 +8,12 @@ from apps.catalog.models import ProductImage
 
 from .models import Order
 from .serializers import (
-    CartSerializer, CartItemAddSerializer, CartItemQuantityUpdateSerializer, CartMergeSerializer,
-    OrderSerializer, OrderCreateSerializer,
+    CartItemAddSerializer,
+    CartItemQuantityUpdateSerializer,
+    CartMergeSerializer,
+    CartSerializer,
+    OrderCreateSerializer,
+    OrderSerializer,
 )
 from .services import CartError, CartNotFoundError, CartService
 from apps.notifications.tasks import send_order_confirmation_email
