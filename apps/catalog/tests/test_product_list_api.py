@@ -395,3 +395,156 @@ class ProductListApiTests(APITestCase):
             [item['slug'] for item in self.response_items(response)],
             [first.slug, second.slug],
         )
+
+    def test_product_list_searches_by_product_name(self):
+        matching = self.make_product('SKU-SEARCH-NAME', 'Air Zoom Pegasus')
+        self.make_product('SKU-SEARCH-NAME-OTHER', 'Classic Tote')
+
+        response = self.client.get(self.list_url, {'search': 'zoom'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_searches_by_brand_name(self):
+        matching = self.make_product('SKU-SEARCH-BRAND', 'Running Shoe', brand=self.other_brand)
+        self.make_product('SKU-SEARCH-BRAND-OTHER', 'Training Shoe', brand=self.brand)
+
+        response = self.client.get(self.list_url, {'search': 'adid'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_searches_by_variant_sku(self):
+        matching = self.make_product('SKU-SEARCH-VARIANT', 'Variant Search Product')
+        ProductVariant.objects.create(
+            product=matching,
+            color=self.color,
+            size=self.size_41,
+            sku='VAR-SEARCH-ALPHA',
+            stock_quantity=1,
+        )
+        other = self.make_product('SKU-SEARCH-VARIANT-OTHER', 'Other Variant Search Product')
+        ProductVariant.objects.create(
+            product=other,
+            color=self.other_color,
+            size=self.size_42,
+            sku='VAR-OTHER-BETA',
+            stock_quantity=1,
+        )
+
+        response = self.client.get(self.list_url, {'search': 'alpha'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_search_returns_only_active_products(self):
+        matching = self.make_product('SKU-SEARCH-ACTIVE', 'Visible Search Product')
+        self.make_product('SKU-SEARCH-INACTIVE', 'Visible Search Product', is_active=False)
+
+        response = self.client.get(self.list_url, {'search': 'visible'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_search_combines_with_catalog_filters(self):
+        sneakers = Category.objects.create(name='Search Sneakers', slug='search-sneakers', parent=self.category)
+        matching = self.make_product(
+            'SKU-SEARCH-FILTER-MATCH',
+            'Trail Runner',
+            category=sneakers,
+            price=Decimal('120.00'),
+        )
+        ProductVariant.objects.create(
+            product=matching,
+            color=self.color,
+            size=self.size_41,
+            sku='VAR-TRAIL-MATCH',
+            stock_quantity=2,
+            variant_price=Decimal('80.00'),
+        )
+        wrong_color = self.make_product(
+            'SKU-SEARCH-FILTER-COLOR',
+            'Trail Runner Color',
+            category=sneakers,
+            price=Decimal('120.00'),
+        )
+        ProductVariant.objects.create(
+            product=wrong_color,
+            color=self.other_color,
+            size=self.size_41,
+            sku='VAR-TRAIL-COLOR',
+            stock_quantity=2,
+            variant_price=Decimal('80.00'),
+        )
+        wrong_price = self.make_product(
+            'SKU-SEARCH-FILTER-PRICE',
+            'Trail Runner Price',
+            category=sneakers,
+            price=Decimal('140.00'),
+        )
+        ProductVariant.objects.create(
+            product=wrong_price,
+            color=self.color,
+            size=self.size_41,
+            sku='VAR-TRAIL-PRICE',
+            stock_quantity=2,
+            variant_price=Decimal('140.00'),
+        )
+        wrong_stock = self.make_product(
+            'SKU-SEARCH-FILTER-STOCK',
+            'Trail Runner Stock',
+            category=sneakers,
+            price=Decimal('120.00'),
+        )
+        ProductVariant.objects.create(
+            product=wrong_stock,
+            color=self.color,
+            size=self.size_41,
+            sku='VAR-TRAIL-STOCK',
+            stock_quantity=0,
+            variant_price=Decimal('80.00'),
+        )
+        self.make_product(
+            'SKU-SEARCH-FILTER-CATEGORY',
+            'Trail Runner Category',
+            category=self.other_category,
+            price=Decimal('80.00'),
+        )
+
+        response = self.client.get(
+            self.list_url,
+            {
+                'search': 'trail',
+                'category': self.category.slug,
+                'size': self.size_41.value,
+                'color': self.color.slug,
+                'price_from': '70.00',
+                'price_to': '90.00',
+                'in_stock': 'true',
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_search_does_not_duplicate_products_matching_multiple_variant_skus(self):
+        matching = self.make_product('SKU-SEARCH-DUPES', 'Duplicate Variant Search Product')
+        ProductVariant.objects.create(
+            product=matching,
+            color=self.color,
+            size=self.size_41,
+            sku='VAR-DUPE-ONE',
+            stock_quantity=1,
+        )
+        ProductVariant.objects.create(
+            product=matching,
+            color=self.other_color,
+            size=self.size_42,
+            sku='VAR-DUPE-TWO',
+            stock_quantity=1,
+        )
+
+        response = self.client.get(self.list_url, {'search': 'dupe'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])

@@ -242,7 +242,7 @@ class ProductListView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, ProductOrderingFilter]
     filterset_class = ProductFilter
-    search_fields = ['name', 'description', 'brand__name', 'sku']
+    search_fields = ['name', 'brand__name', 'variants__sku']
     ordering_fields = ['price', 'created_at', 'name']
     ordering = ['-created_at']
 
