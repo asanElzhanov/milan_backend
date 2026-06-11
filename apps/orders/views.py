@@ -12,10 +12,11 @@ from .serializers import (
     CartItemQuantityUpdateSerializer,
     CartMergeSerializer,
     CartSerializer,
+    CheckoutSerializer,
     OrderCreateSerializer,
     OrderSerializer,
 )
-from .services import CartError, CartNotFoundError, CartService
+from .services import CartError, CartNotFoundError, CartService, CheckoutError
 from apps.notifications.tasks import send_order_confirmation_email
 
 
@@ -33,7 +34,13 @@ CartTokenHeader = OpenApiParameter(
 
 
 def get_cart_token(request):
-    return request.headers.get('X-Cart-Token')
+    token = request.headers.get('X-Cart-Token')
+    if token:
+        return token
+    data = getattr(request, 'data', None)
+    if isinstance(data, dict):
+        return data.get('cart_token')
+    return None
 
 
 def get_current_cart(request, *, allow_create=False):
@@ -73,6 +80,10 @@ def load_cart_for_response(cart):
 def cart_error_response(exc):
     detail = exc.messages[0] if hasattr(exc, 'messages') and exc.messages else str(exc)
     return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def load_order_for_response(order):
+    return Order.objects.prefetch_related('items', 'status_history').get(pk=order.pk)
 
 
 # ── Корзина ──────────────────────────────────────────────────────────────────
@@ -234,14 +245,15 @@ class CartMergeView(APIView):
 
 # ── Заказы ────────────────────────────────────────────────────────────────────
 
-class OrderCreateView(APIView):
-    """POST /orders/ — оформить заказ"""
+class CheckoutView(APIView):
+    """POST /orders/checkout/ — оформить заказ"""
     permission_classes = [permissions.AllowAny]
 
     @extend_schema(
         tags=['Orders'],
         summary='Оформить заказ',
-        request=OrderCreateSerializer,
+        parameters=[CartTokenHeader],
+        request=CheckoutSerializer,
         responses={201: OrderSerializer, 400: OpenApiResponse(description='Ошибка оформления заказа')},
     )
     def post(self, request):
@@ -257,12 +269,21 @@ class OrderCreateView(APIView):
             }
         )
         serializer.is_valid(raise_exception=True)
-        order = serializer.save()
+        try:
+            order = serializer.save()
+        except (CartError, CheckoutError) as exc:
+            return cart_error_response(exc)
+        order = load_order_for_response(order)
 
         # Отправить email подтверждение через Celery
         send_order_confirmation_email.delay(order.id)
 
         return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
+
+
+class OrderCreateView(CheckoutView):
+    """POST /orders/ — backward-compatible checkout alias"""
+    pass
 
 
 class OrderListView(generics.ListAPIView):

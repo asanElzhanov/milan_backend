@@ -143,7 +143,7 @@ class OrderSerializer(serializers.ModelSerializer):
         )
 
 
-class OrderCreateSerializer(serializers.Serializer):
+class CheckoutSerializer(serializers.Serializer):
     """Создание заказа из корзины"""
     customer_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     first_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
@@ -158,6 +158,7 @@ class OrderCreateSerializer(serializers.Serializer):
     delivery_city = serializers.CharField(required=False, allow_blank=True, write_only=True)
     delivery_country = serializers.CharField(default='Казахстан', write_only=True)
     delivery_postal_code = serializers.CharField(required=False, allow_blank=True)
+    cart_token = serializers.UUIDField(required=False, write_only=True)
 
     def validate(self, data):
         cart = self.context['cart']
@@ -188,3 +189,6 @@ class OrderCreateSerializer(serializers.Serializer):
             delivery_method=validated_data['delivery_method'],
             comment=validated_data.get('comment', ''),
         )
+
+
+OrderCreateSerializer = CheckoutSerializer
