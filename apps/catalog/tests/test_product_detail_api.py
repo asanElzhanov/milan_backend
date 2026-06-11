@@ -3,7 +3,9 @@ import shutil
 import tempfile
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -195,3 +197,44 @@ class ProductDetailApiTests(APITestCase):
         self.assertEqual(response.data['average_rating'], 4.0)
         self.assertEqual(response.data['reviews_count'], 2)
         self.assertEqual(len(response.data['reviews']), 2)
+
+    def test_product_detail_uses_bounded_number_of_queries(self):
+        ProductImage.objects.create(
+            product=self.product,
+            image=self.make_image_file('detail-main.jpg'),
+            is_main=True,
+        )
+        ProductMedia.objects.create(
+            product=self.product,
+            media_type=ProductMedia.MediaType.IMAGE,
+            file=self.make_image_file('detail-media.jpg'),
+        )
+        ProductVariant.objects.create(
+            product=self.product,
+            color=self.black,
+            size=self.size_41,
+            sku='VAR-PERF-DETAIL-1',
+            stock_quantity=3,
+        )
+        ProductVariant.objects.create(
+            product=self.product,
+            color=self.white,
+            size=self.size_42,
+            sku='VAR-PERF-DETAIL-2',
+            stock_quantity=0,
+            variant_price=Decimal('90.00'),
+        )
+        first_user = User.objects.create_user(email='perf-first@example.com')
+        second_user = User.objects.create_user(email='perf-second@example.com')
+        Review.objects.create(product=self.product, user=first_user, rating=5, text='Great')
+        Review.objects.create(product=self.product, user=second_user, rating=4, text='Good')
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(self.detail_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['images']), 1)
+        self.assertEqual(len(response.data['media']), 1)
+        self.assertEqual(len(response.data['variants']), 2)
+        self.assertEqual(len(response.data['reviews']), 2)
+        self.assertLessEqual(len(captured), 10)

@@ -143,6 +143,8 @@ class Product(models.Model):
         indexes = [
             models.Index(fields=['slug']),
             models.Index(fields=['is_active']),
+            models.Index(fields=['price'], name='catalog_product_price_idx'),
+            models.Index(fields=['is_new'], name='catalog_product_is_new_idx'),
             models.Index(fields=['category', 'is_active']),
             models.Index(fields=['brand', 'is_active']),
             models.Index(fields=['-created_at']),
@@ -385,6 +387,9 @@ class ProductVariant(models.Model):
             models.Index(fields=['is_active']),
             models.Index(fields=['stock_quantity']),
             models.Index(fields=['product', 'stock_quantity'], name='catalog_pro_product_ee4f5c_idx'),
+            models.Index(fields=['product', 'is_active', 'stock_quantity'], name='cat_var_stock_lookup_idx'),
+            models.Index(fields=['size', 'is_active', 'product'], name='cat_var_size_lookup_idx'),
+            models.Index(fields=['color', 'is_active', 'product'], name='cat_var_color_lookup_idx'),
         ]
         constraints = [
             models.CheckConstraint(

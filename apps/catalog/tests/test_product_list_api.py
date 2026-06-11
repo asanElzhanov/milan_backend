@@ -3,7 +3,9 @@ import shutil
 import tempfile
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -548,3 +550,44 @@ class ProductListApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_uses_bounded_number_of_queries_with_filters_and_search(self):
+        sneakers = Category.objects.create(name='Perf Sneakers', slug='perf-sneakers', parent=self.category)
+        for index in range(3):
+            product = self.make_product(
+                f'SKU-PERF-{index}',
+                f'Performance Runner {index}',
+                category=sneakers,
+                price=Decimal('120.00'),
+            )
+            ProductImage.objects.create(
+                product=product,
+                image=self.make_image_file(f'perf-{index}.jpg'),
+                is_main=True,
+            )
+            ProductVariant.objects.create(
+                product=product,
+                color=self.color,
+                size=self.size_41,
+                sku=f'VAR-PERF-{index}',
+                stock_quantity=2,
+                variant_price=Decimal('80.00'),
+            )
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(
+                self.list_url,
+                {
+                    'search': 'perf',
+                    'category': self.category.slug,
+                    'size': self.size_41.value,
+                    'color': self.color.slug,
+                    'price_from': '70.00',
+                    'price_to': '90.00',
+                    'in_stock': 'true',
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(self.response_items(response)), 3)
+        self.assertLessEqual(len(captured), 8)

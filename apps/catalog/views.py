@@ -300,7 +300,7 @@ class ProductDetailView(generics.RetrieveAPIView):
             Prefetch('images', queryset=ProductImage.objects.order_by('sort_order', 'id')),
             Prefetch('media', queryset=ProductMedia.objects.filter(is_active=True).order_by('sort_order', 'id'), to_attr='active_media'),
             'videos',
-            Prefetch('variants', queryset=ProductVariant.objects.select_related('color', 'size').order_by('id')),
+            Prefetch('variants', queryset=ProductVariant.objects.select_related('product', 'color', 'size').order_by('id')),
             Prefetch(
                 'reviews',
                 queryset=Review.objects.filter(is_approved=True).select_related('user').prefetch_related('images').order_by('-created_at'),
