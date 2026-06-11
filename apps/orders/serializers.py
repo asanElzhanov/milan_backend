@@ -3,29 +3,31 @@ from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem
 from apps.catalog.models import Promo
-from apps.catalog.serializers import ProductListSerializer
 from apps.catalog.services import StockService
+from .services import CartService
 
 
 class CartItemSerializer(serializers.ModelSerializer):
-    variant_id = serializers.IntegerField(write_only=True)
-    product = serializers.SerializerMethodField()
+    variant_id = serializers.IntegerField(source='variant.id', read_only=True)
+    product_id = serializers.IntegerField(source='variant.product.id', read_only=True)
+    product_name = serializers.CharField(source='variant.product.name', read_only=True)
+    product_slug = serializers.CharField(source='variant.product.slug', read_only=True)
+    sku = serializers.CharField(source='variant.sku', read_only=True)
     color = serializers.SerializerMethodField()
     size = serializers.SerializerMethodField()
     unit_price = serializers.SerializerMethodField()
-    total_price = serializers.ReadOnlyField()
+    line_total = serializers.SerializerMethodField()
+    image = serializers.SerializerMethodField()
+    available_stock = serializers.IntegerField(source='variant.stock_quantity', read_only=True)
+    in_stock = serializers.BooleanField(source='variant.in_stock', read_only=True)
 
     class Meta:
         model = CartItem
-        fields = ('id', 'variant_id', 'product', 'color', 'size', 'quantity', 'unit_price', 'total_price')
-
-    @extend_schema_field(OpenApiTypes.OBJECT)
-    def get_product(self, obj):
-        return {
-            'id': obj.variant.product.id,
-            'name': obj.variant.product.name,
-            'slug': obj.variant.product.slug,
-        }
+        fields = (
+            'id', 'variant_id', 'product_id', 'product_name', 'product_slug',
+            'sku', 'size', 'color', 'quantity', 'unit_price', 'line_total',
+            'image', 'available_stock', 'in_stock',
+        )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_color(self, obj):
@@ -37,22 +39,72 @@ class CartItemSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.DECIMAL)
     def get_unit_price(self, obj):
-        return str(obj.variant.final_price)
+        return str(CartService.get_effective_price(obj.variant))
+
+    @extend_schema_field(OpenApiTypes.DECIMAL)
+    def get_line_total(self, obj):
+        return str(CartService.get_effective_price(obj.variant) * obj.quantity)
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_image(self, obj):
+        images = list(obj.variant.product.images.all())
+        image = next((item for item in images if item.is_main), None)
+        if image is None and images:
+            image = images[0]
+        if not image:
+            return None
+        request = self.context.get('request')
+        return request.build_absolute_uri(image.image.url) if request else image.image.url
 
 
 class CartSerializer(serializers.ModelSerializer):
+    cart_token = serializers.SerializerMethodField()
     items = CartItemSerializer(many=True, read_only=True)
-    total = serializers.ReadOnlyField()
-    items_count = serializers.ReadOnlyField()
+    items_count = serializers.SerializerMethodField()
+    total_quantity = serializers.SerializerMethodField()
+    subtotal = serializers.SerializerMethodField()
+    total = serializers.SerializerMethodField()
 
     class Meta:
         model = Cart
-        fields = ('id', 'token', 'items', 'total', 'items_count', 'updated_at')
+        fields = (
+            'cart_token', 'items', 'items_count', 'total_quantity',
+            'subtotal', 'total',
+        )
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_cart_token(self, obj):
+        return str(obj.token) if obj.token else None
+
+    def _totals(self, obj):
+        if not hasattr(obj, '_cart_totals'):
+            obj._cart_totals = CartService.recalculate_cart(obj)
+        return obj._cart_totals
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_items_count(self, obj):
+        return self._totals(obj)['items_count']
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_total_quantity(self, obj):
+        return self._totals(obj)['total_quantity']
+
+    @extend_schema_field(OpenApiTypes.DECIMAL)
+    def get_subtotal(self, obj):
+        return str(self._totals(obj)['subtotal'])
+
+    @extend_schema_field(OpenApiTypes.DECIMAL)
+    def get_total(self, obj):
+        return str(self._totals(obj)['total'])
 
 
 class CartItemAddSerializer(serializers.Serializer):
     variant_id = serializers.IntegerField(min_value=1)
     quantity = serializers.IntegerField(min_value=1, default=1)
+
+
+class CartItemQuantityUpdateSerializer(serializers.Serializer):
+    quantity = serializers.IntegerField(min_value=1)
 
 
 class OrderItemSerializer(serializers.ModelSerializer):

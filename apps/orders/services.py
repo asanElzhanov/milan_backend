@@ -91,10 +91,32 @@ class CartService:
             return item, cart
 
     @classmethod
+    def update_item_by_id(cls, cart, item_id, quantity):
+        quantity = cls._validate_quantity(quantity)
+        with transaction.atomic():
+            cart = cls._lock_cart(cart)
+            item = cls._lock_item_by_id(cart, item_id)
+            variant = cls._lock_variant(item.variant_id)
+            cls._ensure_variant_available(variant)
+            cls._ensure_stock_available(variant, quantity)
+
+            item.quantity = quantity
+            item.save(update_fields=['quantity', 'updated_at'])
+            return item, cart
+
+    @classmethod
     def remove_item(cls, cart, item_or_variant):
         with transaction.atomic():
             cart = cls._lock_cart(cart)
             item = cls._lock_item(cart, item_or_variant)
+            item.delete()
+            return cart
+
+    @classmethod
+    def remove_item_by_id(cls, cart, item_id):
+        with transaction.atomic():
+            cart = cls._lock_cart(cart)
+            item = cls._lock_item_by_id(cart, item_id)
             item.delete()
             return cart
 
@@ -211,6 +233,13 @@ class CartService:
             item = queryset.filter(pk=item_or_variant).first()
             if item is None:
                 item = queryset.filter(variant_id=item_or_variant).first()
+        if item is None:
+            raise CartNotFoundError('Позиция корзины не найдена.')
+        return item
+
+    @staticmethod
+    def _lock_item_by_id(cart, item_id):
+        item = CartItem.objects.select_for_update().filter(cart=cart, pk=item_id).first()
         if item is None:
             raise CartNotFoundError('Позиция корзины не найдена.')
         return item
