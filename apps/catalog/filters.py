@@ -3,7 +3,7 @@ from django.db.models import DecimalField, Exists, F, Min, OuterRef, Q
 from django.db.models.functions import Coalesce
 import django_filters
 
-from .models import Product, ProductVariant, StockMovement
+from .models import Category, Product, ProductVariant, StockMovement
 
 
 def with_product_list_annotations(queryset):
@@ -34,16 +34,20 @@ def with_product_list_annotations(queryset):
 
 
 class ProductFilter(django_filters.FilterSet):
+    price_from = django_filters.NumberFilter(method='filter_min_price_gte')
+    price_to = django_filters.NumberFilter(method='filter_min_price_lte')
     price_min = django_filters.NumberFilter(method='filter_min_price_gte')
     price_max = django_filters.NumberFilter(method='filter_min_price_lte')
     min_price = django_filters.NumberFilter(method='filter_min_price_gte')
     max_price = django_filters.NumberFilter(method='filter_min_price_lte')
     brand = django_filters.CharFilter(method='filter_brand')
-    brand_slug = django_filters.CharFilter(field_name='brand__slug')
+    brand_slug = django_filters.CharFilter(method='filter_brand')
     category = django_filters.CharFilter(method='filter_category')
-    category_slug = django_filters.CharFilter(field_name='category__slug')
-    color = django_filters.CharFilter(field_name='variants__color__id')
-    size = django_filters.CharFilter(field_name='variants__size__value')
+    category_slug = django_filters.CharFilter(method='filter_category')
+    subcategory = django_filters.CharFilter(method='filter_category')
+    subcategory_slug = django_filters.CharFilter(method='filter_category')
+    color = django_filters.CharFilter(method='filter_color')
+    size = django_filters.CharFilter(method='filter_size')
     material = django_filters.CharFilter(field_name='material', lookup_expr='icontains')
     season = django_filters.CharFilter(field_name='season')
     in_stock = django_filters.BooleanFilter(method='filter_in_stock')
@@ -54,8 +58,10 @@ class ProductFilter(django_filters.FilterSet):
     class Meta:
         model = Product
         fields = [
+            'price_from', 'price_to',
             'price_min', 'price_max', 'min_price', 'max_price',
-            'brand', 'brand_slug', 'category', 'category_slug',
+            'brand', 'brand_slug',
+            'category', 'category_slug', 'subcategory', 'subcategory_slug',
             'color', 'size', 'material', 'season',
             'in_stock', 'has_discount', 'is_sale', 'is_new',
         ]
@@ -72,9 +78,39 @@ class ProductFilter(django_filters.FilterSet):
         return queryset.filter(brand__slug=value)
 
     def filter_category(self, queryset, name, value):
+        category_queryset = Category.objects.all()
         if value.isdigit():
-            return queryset.filter(category_id=value)
-        return queryset.filter(category__slug=value)
+            category = category_queryset.filter(pk=value).first()
+        else:
+            category = category_queryset.filter(slug=value).first()
+
+        if category is None:
+            return queryset.none()
+
+        category_ids = category.get_descendants(include_self=True).values('pk')
+        return queryset.filter(category_id__in=category_ids)
+
+    def filter_color(self, queryset, name, value):
+        variants = ProductVariant.objects.filter(
+            product=OuterRef('pk'),
+            is_active=True,
+        )
+        if value.isdigit():
+            variants = variants.filter(color_id=value)
+        else:
+            variants = variants.filter(color__slug=value)
+        return queryset.filter(Exists(variants))
+
+    def filter_size(self, queryset, name, value):
+        variants = ProductVariant.objects.filter(
+            product=OuterRef('pk'),
+            is_active=True,
+        )
+        if value.isdigit():
+            variants = variants.filter(models.Q(size_id=value) | models.Q(size__value=value))
+        else:
+            variants = variants.filter(size__value=value)
+        return queryset.filter(Exists(variants))
 
     def filter_in_stock(self, queryset, name, value):
         if value:

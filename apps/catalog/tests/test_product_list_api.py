@@ -23,6 +23,7 @@ class ProductListApiTests(APITestCase):
         self.brand = Brand.objects.create(name='Nike', slug='nike')
         self.other_brand = Brand.objects.create(name='Adidas', slug='adidas')
         self.color = Color.objects.create(name='Black', slug='black', hex_code='#000000')
+        self.other_color = Color.objects.create(name='White', slug='white', hex_code='#FFFFFF')
         self.size_41 = Size.objects.create(value='41', size_type=Size.SizeType.SHOES, sort_order=1)
         self.size_42 = Size.objects.create(value='42', size_type=Size.SizeType.SHOES, sort_order=2)
 
@@ -171,3 +172,226 @@ class ProductListApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_filters_by_parent_category_descendants(self):
+        sneakers = Category.objects.create(name='Sneakers', slug='sneakers', parent=self.category)
+        matching = self.make_product('SKU-CATEGORY-TREE', 'Category Tree Product', category=sneakers)
+        self.make_product('SKU-CATEGORY-OTHER', 'Other Category Product', category=self.other_category)
+
+        response = self.client.get(self.list_url, {'category_slug': self.category.slug})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_filters_by_subcategory(self):
+        sneakers = Category.objects.create(name='Sneakers', slug='sneakers', parent=self.category)
+        boots = Category.objects.create(name='Boots', slug='boots', parent=self.category)
+        matching = self.make_product('SKU-SUBCATEGORY', 'Subcategory Product', category=sneakers)
+        self.make_product('SKU-BOOTS', 'Boots Product', category=boots)
+
+        response = self.client.get(self.list_url, {'subcategory': sneakers.slug})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_filters_by_active_variant_size(self):
+        matching = self.make_product('SKU-SIZE-MATCH', 'Size Match Product')
+        ProductVariant.objects.create(
+            product=matching,
+            color=self.color,
+            size=self.size_41,
+            sku='VAR-SIZE-MATCH',
+            stock_quantity=1,
+        )
+        inactive_match = self.make_product('SKU-SIZE-INACTIVE', 'Inactive Size Product')
+        ProductVariant.objects.create(
+            product=inactive_match,
+            color=self.other_color,
+            size=self.size_41,
+            sku='VAR-SIZE-INACTIVE',
+            stock_quantity=1,
+            is_active=False,
+        )
+        other_size = self.make_product('SKU-SIZE-OTHER', 'Other Size Product')
+        ProductVariant.objects.create(
+            product=other_size,
+            color=self.color,
+            size=self.size_42,
+            sku='VAR-SIZE-OTHER',
+            stock_quantity=1,
+        )
+
+        response = self.client.get(self.list_url, {'size': self.size_41.value})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_filters_by_active_variant_color(self):
+        matching = self.make_product('SKU-COLOR-MATCH', 'Color Match Product')
+        ProductVariant.objects.create(
+            product=matching,
+            color=self.color,
+            size=self.size_41,
+            sku='VAR-COLOR-MATCH',
+            stock_quantity=1,
+        )
+        inactive_match = self.make_product('SKU-COLOR-INACTIVE', 'Inactive Color Product')
+        ProductVariant.objects.create(
+            product=inactive_match,
+            color=self.color,
+            size=self.size_42,
+            sku='VAR-COLOR-INACTIVE',
+            stock_quantity=1,
+            is_active=False,
+        )
+        other_color = self.make_product('SKU-COLOR-OTHER', 'Other Color Product')
+        ProductVariant.objects.create(
+            product=other_color,
+            color=self.other_color,
+            size=self.size_41,
+            sku='VAR-COLOR-OTHER',
+            stock_quantity=1,
+        )
+
+        response = self.client.get(self.list_url, {'color': self.color.slug})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_filters_by_price_from_and_price_to_using_active_variant_price(self):
+        matching = self.make_product('SKU-PRICE-MATCH', 'Price Match Product', price=Decimal('120.00'))
+        ProductVariant.objects.create(
+            product=matching,
+            color=self.color,
+            size=self.size_41,
+            sku='VAR-PRICE-MATCH',
+            stock_quantity=1,
+            variant_price=Decimal('80.00'),
+        )
+        inactive_variant_price = self.make_product(
+            'SKU-PRICE-INACTIVE',
+            'Inactive Variant Price Product',
+            price=Decimal('150.00'),
+        )
+        ProductVariant.objects.create(
+            product=inactive_variant_price,
+            color=self.color,
+            size=self.size_41,
+            sku='VAR-PRICE-INACTIVE',
+            stock_quantity=1,
+            variant_price=Decimal('80.00'),
+            is_active=False,
+        )
+        self.make_product('SKU-PRICE-OTHER', 'Other Price Product', price=Decimal('150.00'))
+
+        response = self.client.get(
+            self.list_url,
+            {'price_from': '70.00', 'price_to': '90.00'},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_filters_by_in_stock(self):
+        matching = self.make_product('SKU-STOCK-MATCH', 'Stock Match Product')
+        ProductVariant.objects.create(
+            product=matching,
+            color=self.color,
+            size=self.size_41,
+            sku='VAR-STOCK-MATCH',
+            stock_quantity=1,
+        )
+        out_of_stock = self.make_product('SKU-STOCK-EMPTY', 'Stock Empty Product')
+        ProductVariant.objects.create(
+            product=out_of_stock,
+            color=self.color,
+            size=self.size_42,
+            sku='VAR-STOCK-EMPTY',
+            stock_quantity=0,
+        )
+        inactive_stock = self.make_product('SKU-STOCK-INACTIVE', 'Inactive Stock Product')
+        ProductVariant.objects.create(
+            product=inactive_stock,
+            color=self.other_color,
+            size=self.size_41,
+            sku='VAR-STOCK-INACTIVE',
+            stock_quantity=1,
+            is_active=False,
+        )
+
+        response = self.client.get(self.list_url, {'in_stock': 'true'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_filters_by_brand(self):
+        matching = self.make_product('SKU-BRAND-MATCH', 'Brand Match Product', brand=self.other_brand)
+        self.make_product('SKU-BRAND-OTHER', 'Brand Other Product', brand=self.brand)
+
+        response = self.client.get(self.list_url, {'brand': self.other_brand.slug})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_filters_by_is_new(self):
+        matching = self.make_product('SKU-NEW-MATCH', 'New Match Product', is_new=True)
+        self.make_product('SKU-NEW-OTHER', 'New Other Product', is_new=False)
+
+        response = self.client.get(self.list_url, {'is_new': 'true'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_filters_by_is_sale(self):
+        matching = self.make_product(
+            'SKU-SALE-MATCH',
+            'Sale Match Product',
+            price=Decimal('80.00'),
+            old_price=Decimal('100.00'),
+        )
+        self.make_product('SKU-SALE-OTHER', 'Sale Other Product', price=Decimal('100.00'))
+
+        response = self.client.get(self.list_url, {'is_sale': 'true'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
+
+    def test_product_list_orders_by_real_price(self):
+        lower_variant_price = self.make_product(
+            'SKU-ORDER-LOWER-VARIANT',
+            'B Lower Variant Price',
+            price=Decimal('120.00'),
+        )
+        ProductVariant.objects.create(
+            product=lower_variant_price,
+            color=self.color,
+            size=self.size_41,
+            sku='VAR-ORDER-LOWER-VARIANT',
+            stock_quantity=1,
+            variant_price=Decimal('80.00'),
+        )
+        product_price = self.make_product(
+            'SKU-ORDER-PRODUCT',
+            'A Product Price',
+            price=Decimal('90.00'),
+        )
+
+        response = self.client.get(self.list_url, {'ordering': 'price'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item['slug'] for item in self.response_items(response)],
+            [lower_variant_price.slug, product_price.slug],
+        )
+
+    def test_product_list_supports_sort_alias_for_ordering(self):
+        second = self.make_product('SKU-SORT-B', 'B Sort Product')
+        first = self.make_product('SKU-SORT-A', 'A Sort Product')
+
+        response = self.client.get(self.list_url, {'sort': 'name'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item['slug'] for item in self.response_items(response)],
+            [first.slug, second.slug],
+        )

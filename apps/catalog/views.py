@@ -67,8 +67,20 @@ class ActiveFilterMixin:
 
 class ProductOrderingFilter(filters.OrderingFilter):
     ordering_aliases = {
+        'price': '_min_price',
         'min_price': '_min_price',
     }
+
+    def get_ordering(self, request, queryset, view):
+        ordering = request.query_params.get(self.ordering_param)
+        if ordering is None:
+            ordering = request.query_params.get('sort')
+        if ordering:
+            fields = [field.strip() for field in ordering.split(',')]
+            ordering = self.remove_invalid_fields(queryset, fields, view, request)
+            if ordering:
+                return ordering
+        return self.get_default_ordering(view)
 
     def remove_invalid_fields(self, queryset, fields, view, request):
         valid_fields = super().remove_invalid_fields(queryset, fields, view, request)
@@ -225,13 +237,13 @@ class SizeListView(ActiveFilterMixin, generics.ListAPIView):
 
 
 class ProductListView(generics.ListAPIView):
-    """GET /catalog/products/?category=krossovki&brand=nike&price_min=10000"""
+    """GET /catalog/products/?category=krossovki&brand=nike&price_from=10000"""
     serializer_class = ProductListSerializer
     permission_classes = [permissions.AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, ProductOrderingFilter]
     filterset_class = ProductFilter
     search_fields = ['name', 'description', 'brand__name', 'sku']
-    ordering_fields = ['price', 'min_price', 'created_at', 'name', 'rating', 'orders_count']
+    ordering_fields = ['price', 'created_at', 'name']
     ordering = ['-created_at']
 
     def get_queryset(self):
@@ -252,20 +264,22 @@ class ProductListView(generics.ListAPIView):
         parameters=[
             OpenApiParameter('category', OpenApiTypes.STR, OpenApiParameter.QUERY),
             OpenApiParameter('category_slug', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('subcategory', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('subcategory_slug', OpenApiTypes.STR, OpenApiParameter.QUERY),
             OpenApiParameter('brand', OpenApiTypes.STR, OpenApiParameter.QUERY),
             OpenApiParameter('brand_slug', OpenApiTypes.STR, OpenApiParameter.QUERY),
             OpenApiParameter('color', OpenApiTypes.STR, OpenApiParameter.QUERY),
             OpenApiParameter('size', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('price_from', OpenApiTypes.NUMBER, OpenApiParameter.QUERY),
+            OpenApiParameter('price_to', OpenApiTypes.NUMBER, OpenApiParameter.QUERY),
             OpenApiParameter('price_min', OpenApiTypes.NUMBER, OpenApiParameter.QUERY),
             OpenApiParameter('price_max', OpenApiTypes.NUMBER, OpenApiParameter.QUERY),
-            OpenApiParameter('min_price', OpenApiTypes.NUMBER, OpenApiParameter.QUERY),
-            OpenApiParameter('max_price', OpenApiTypes.NUMBER, OpenApiParameter.QUERY),
             OpenApiParameter('in_stock', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
-            OpenApiParameter('has_discount', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
             OpenApiParameter('is_sale', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
             OpenApiParameter('is_new', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
             OpenApiParameter('search', OpenApiTypes.STR, OpenApiParameter.QUERY),
             OpenApiParameter('ordering', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('sort', OpenApiTypes.STR, OpenApiParameter.QUERY),
         ],
         responses={200: ProductListSerializer(many=True)},
     )
