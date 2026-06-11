@@ -1,10 +1,10 @@
 from django.db import transaction
-from django.db import models
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem
 from apps.catalog.models import ProductVariant, Promo
 from apps.catalog.serializers import ProductListSerializer
+from apps.catalog.services import StockService
 
 
 class CartItemSerializer(serializers.ModelSerializer):
@@ -177,9 +177,11 @@ class OrderCreateSerializer(serializers.Serializer):
                 quantity=item.quantity,
                 unit_price=variant.final_price,
             )
-            # Уменьшаем склад
-            ProductVariant.objects.filter(pk=variant.pk).update(
-                stock_quantity=models.F('stock_quantity') - item.quantity
+            StockService.sale(
+                variant=variant,
+                quantity=item.quantity,
+                user=self.context.get('user'),
+                comment=f'Заказ #{order.number}',
             )
 
         # Используем промокод
