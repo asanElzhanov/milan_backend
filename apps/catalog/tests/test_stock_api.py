@@ -9,6 +9,7 @@ from apps.catalog.models import Brand, Category, Color, Product, ProductVariant,
 
 class StockApiTests(APITestCase):
     stock_url = '/api/v1/catalog/stock/'
+    stock_adjust_url = '/api/v1/catalog/stock/adjust/'
     movements_url = '/api/v1/catalog/stock/movements/'
 
     def setUp(self):
@@ -181,3 +182,97 @@ class StockApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(self.response_items(response)), 2)
+
+    def test_manager_can_adjust_stock(self):
+        self.authenticate_manager()
+
+        response = self.client.post(
+            self.stock_adjust_url,
+            {
+                'variant_id': self.variant.id,
+                'new_quantity': 8,
+                'comment': 'Inventory count',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.stock_quantity, 8)
+        self.assertEqual(response.data['variant'], self.variant.id)
+        self.assertEqual(response.data['sku'], self.variant.sku)
+        self.assertEqual(response.data['quantity'], 3)
+        self.assertEqual(response.data['operation_type'], StockMovement.OperationType.MANUAL_ADJUSTMENT)
+        self.assertEqual(response.data['comment'], 'Inventory count')
+        movement = StockMovement.objects.get(pk=response.data['id'])
+        self.assertEqual(movement.user, self.manager)
+
+    def test_stock_adjustment_uses_default_comment(self):
+        self.authenticate_manager()
+
+        response = self.client.post(
+            self.stock_adjust_url,
+            {
+                'variant_id': self.variant.id,
+                'new_quantity': 7,
+                'comment': '',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['comment'], 'Manual adjustment to 7 via API')
+
+    def test_customer_cannot_adjust_stock(self):
+        self.client.force_authenticate(self.customer)
+
+        response = self.client.post(
+            self.stock_adjust_url,
+            {'variant_id': self.variant.id, 'new_quantity': 8},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.stock_quantity, 5)
+
+    def test_stock_adjustment_rejects_negative_quantity(self):
+        self.authenticate_manager()
+        movement_count = StockMovement.objects.count()
+
+        response = self.client.post(
+            self.stock_adjust_url,
+            {'variant_id': self.variant.id, 'new_quantity': -1},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.stock_quantity, 5)
+        self.assertEqual(StockMovement.objects.count(), movement_count)
+
+    def test_stock_adjustment_rejects_unchanged_quantity(self):
+        self.authenticate_manager()
+        movement_count = StockMovement.objects.count()
+
+        response = self.client.post(
+            self.stock_adjust_url,
+            {'variant_id': self.variant.id, 'new_quantity': 5},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.stock_quantity, 5)
+        self.assertEqual(StockMovement.objects.count(), movement_count)
+
+    def test_stock_adjustment_returns_404_for_unknown_variant(self):
+        self.authenticate_manager()
+
+        response = self.client.post(
+            self.stock_adjust_url,
+            {'variant_id': 999999, 'new_quantity': 8},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

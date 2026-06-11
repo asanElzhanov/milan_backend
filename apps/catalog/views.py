@@ -1,9 +1,10 @@
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 from django.db.models import F, Prefetch
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
-from rest_framework import filters, generics, permissions
+from rest_framework import filters, generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -18,8 +19,9 @@ from .serializers import (
     ProductListSerializer, ProductDetailSerializer,
     ReviewSerializer, ReviewCreateSerializer,
     BannerSerializer, PromoCheckSerializer,
-    StockMovementSerializer, StockVariantSerializer,
+    StockAdjustmentSerializer, StockMovementSerializer, StockVariantSerializer,
 )
+from .services import InvalidStockQuantityError, StockService
 from .filters import ProductFilter, StockMovementFilter, StockVariantFilter, with_product_list_annotations
 
 
@@ -381,6 +383,52 @@ class StockMovementListView(generics.ListAPIView):
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
+
+class StockAdjustmentView(APIView):
+    """POST /catalog/stock/adjust/ — ручная корректировка остатка для фронта"""
+    permission_classes = [IsManagerOrAdmin]
+
+    @extend_schema(
+        tags=['Catalog / Stock'],
+        summary='Ручная корректировка остатка',
+        request=StockAdjustmentSerializer,
+        responses={
+            201: StockMovementSerializer,
+            400: OpenApiResponse(description='Ошибка корректировки остатка'),
+            404: OpenApiResponse(description='Вариант товара не найден'),
+        },
+    )
+    def post(self, request):
+        serializer = StockAdjustmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        variant_id = serializer.validated_data['variant_id']
+        new_quantity = serializer.validated_data['new_quantity']
+        comment = serializer.validated_data.get('comment', '').strip()
+        if not comment:
+            comment = f'Manual adjustment to {new_quantity} via API'
+
+        try:
+            movement = StockService.manual_adjustment(
+                variant=variant_id,
+                new_quantity=new_quantity,
+                user=request.user,
+                comment=comment,
+            )
+        except ObjectDoesNotExist:
+            return Response({'detail': 'Вариант товара не найден.'}, status=status.HTTP_404_NOT_FOUND)
+        except InvalidStockQuantityError as exc:
+            detail = exc.messages[0] if hasattr(exc, 'messages') else str(exc)
+            return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+
+        movement = StockMovement.objects.select_related(
+            'variant__product',
+            'user',
+        ).get(pk=movement.pk)
+        return Response(
+            StockMovementSerializer(movement, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ProductSimilarView(generics.ListAPIView):

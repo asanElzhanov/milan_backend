@@ -4,7 +4,7 @@ from django.db.models import Exists, OuterRef
 from mptt.admin import MPTTModelAdmin
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
-    ProductMedia, ProductVariant, Promo, Review, Size,
+    ProductMedia, ProductVariant, Promo, Review, Size, StockMovement,
 )
 
 
@@ -47,6 +47,7 @@ class ProductStockFilter(admin.SimpleListFilter):
 class ProductVariantInline(admin.TabularInline):
     model = ProductVariant
     fields = ('size', 'color', 'sku', 'stock_quantity', 'variant_price', 'is_active')
+    readonly_fields = ('stock_quantity',)
     autocomplete_fields = ('size', 'color')
     extra = 1
 
@@ -135,11 +136,33 @@ class ProductAdmin(admin.ModelAdmin):
 @admin.register(ProductVariant)
 class ProductVariantAdmin(admin.ModelAdmin):
     list_display = ('product', 'sku', 'size', 'color', 'stock_quantity', 'variant_price', 'is_active', 'in_stock')
-    list_filter = ('is_active', 'size', 'color')
+    list_filter = ('product__category', 'product__brand', 'size', 'color', 'is_active', ProductStockFilter)
     search_fields = ('sku', 'product__name', 'product__slug')
     autocomplete_fields = ('product', 'size', 'color')
     ordering = ('product__name', 'sku')
-    readonly_fields = ('created_at', 'updated_at')
+    readonly_fields = ('stock_quantity', 'in_stock', 'created_at', 'updated_at')
+    fieldsets = (
+        ('Вариант', {
+            'fields': ('product', 'sku', 'size', 'color', 'variant_price', 'is_active'),
+        }),
+        ('Остаток', {
+            'fields': ('stock_quantity', 'in_stock'),
+        }),
+        ('Системные поля', {
+            'fields': ('created_at', 'updated_at'),
+        }),
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'product__category', 'product__brand', 'size', 'color',
+        ).annotate(
+            _admin_in_stock=models.Case(
+                models.When(is_active=True, stock_quantity__gt=0, then=models.Value(True)),
+                default=models.Value(False),
+                output_field=models.BooleanField(),
+            ),
+        )
 
 
 @admin.register(ProductImage)
@@ -150,6 +173,38 @@ class ProductImageAdmin(admin.ModelAdmin):
     autocomplete_fields = ('product',)
     ordering = ('product__name', 'sort_order', 'id')
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(StockMovement)
+class StockMovementAdmin(admin.ModelAdmin):
+    list_display = ('variant', 'sku', 'product', 'quantity', 'operation_type', 'user', 'comment', 'created_at')
+    list_filter = ('operation_type', 'created_at', 'user')
+    search_fields = ('variant__sku', 'variant__product__name', 'comment')
+    readonly_fields = ('variant', 'quantity', 'operation_type', 'user', 'comment', 'created_at')
+    ordering = ('-created_at',)
+    date_hierarchy = 'created_at'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('variant__product', 'user')
+
+    @admin.display(description='SKU')
+    def sku(self, obj):
+        return obj.variant.sku
+
+    @admin.display(description='товар')
+    def product(self, obj):
+        return obj.variant.product
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        if obj is None:
+            return super().has_change_permission(request, obj)
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(ProductMedia)

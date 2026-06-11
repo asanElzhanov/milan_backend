@@ -4,7 +4,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import User
-from apps.catalog.models import Brand, Category, Color, Product, ProductVariant, Size
+from apps.catalog.models import Brand, Category, Color, Product, ProductVariant, Size, StockMovement
 
 
 class ProductAdminTests(TestCase):
@@ -66,3 +66,35 @@ class ProductAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Admin Product')
+
+    def test_product_variant_admin_opens_with_read_only_stock(self):
+        response = self.client.get(reverse('admin:catalog_productvariant_change', args=[self.variant.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'VAR-ADMIN-42-BLACK')
+        self.assertContains(response, 'Остаток')
+
+    def test_stock_movement_admin_is_read_only(self):
+        movement = StockMovement.objects.create(
+            variant=self.variant,
+            quantity=1,
+            operation_type=StockMovement.OperationType.INCOME,
+            user=self.admin_user,
+            comment='Readonly history',
+        )
+
+        response = self.client.post(
+            reverse('admin:catalog_stockmovement_change', args=[movement.pk]),
+            {
+                'variant': self.variant.pk,
+                'quantity': 99,
+                'operation_type': StockMovement.OperationType.SALE,
+                'comment': 'Changed',
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        movement.refresh_from_db()
+        self.assertEqual(movement.quantity, 1)
+        self.assertEqual(movement.operation_type, StockMovement.OperationType.INCOME)
+        self.assertEqual(movement.comment, 'Readonly history')

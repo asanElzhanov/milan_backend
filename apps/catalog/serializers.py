@@ -160,6 +160,12 @@ class StockMovementSerializer(serializers.ModelSerializer):
         }
 
 
+class StockAdjustmentSerializer(serializers.Serializer):
+    variant_id = serializers.IntegerField(min_value=1)
+    new_quantity = serializers.IntegerField(min_value=0)
+    comment = serializers.CharField(required=False, allow_blank=True, max_length=1000)
+
+
 class ReviewImageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ReviewImage
