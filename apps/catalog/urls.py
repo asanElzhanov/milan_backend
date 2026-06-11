@@ -10,6 +10,9 @@ urlpatterns = [
     path('colors/', views.ColorListView.as_view(), name='colors'),
     path('sizes/', views.SizeListView.as_view(), name='sizes'),
 
+    path('stock/', views.StockVariantListView.as_view(), name='stock-list'),
+    path('stock/movements/', views.StockMovementListView.as_view(), name='stock-movements'),
+
     path('products/', views.ProductListView.as_view(), name='product-list'),
     path('products/<slug:slug>/', views.ProductDetailView.as_view(), name='product-detail'),
     path('products/<slug:slug>/similar/', views.ProductSimilarView.as_view(), name='product-similar'),

@@ -2,7 +2,7 @@ from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
-    ProductMedia, ProductVariant, Promo, Review, ReviewImage, Size,
+    ProductMedia, ProductVariant, Promo, Review, ReviewImage, Size, StockMovement,
 )
 
 
@@ -95,6 +95,69 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         if obj.variant_price is None:
             return '0.00'
         return str(obj.variant_price - obj.product.price)
+
+
+class StockVariantSerializer(serializers.ModelSerializer):
+    variant_id = serializers.IntegerField(source='id', read_only=True)
+    product_id = serializers.IntegerField(source='product.id', read_only=True)
+    product_name = serializers.CharField(source='product.name', read_only=True)
+    product_slug = serializers.CharField(source='product.slug', read_only=True)
+    category = serializers.SerializerMethodField()
+    brand = serializers.SerializerMethodField()
+    size = SizeSerializer(read_only=True)
+    color = ColorSerializer(read_only=True)
+    in_stock = serializers.ReadOnlyField()
+
+    class Meta:
+        model = ProductVariant
+        fields = (
+            'variant_id', 'product_id', 'product_name', 'product_slug',
+            'category', 'brand', 'size', 'color',
+            'sku', 'stock_quantity', 'is_active', 'in_stock',
+        )
+
+    @extend_schema_field(serializers.DictField())
+    def get_category(self, obj):
+        category = obj.product.category
+        if not category:
+            return None
+        return {'id': category.id, 'name': category.name, 'slug': category.slug}
+
+    @extend_schema_field(serializers.DictField())
+    def get_brand(self, obj):
+        brand = obj.product.brand
+        if not brand:
+            return None
+        return {'id': brand.id, 'name': brand.name, 'slug': brand.slug}
+
+
+class StockMovementSerializer(serializers.ModelSerializer):
+    variant = serializers.IntegerField(source='variant_id', read_only=True)
+    product = serializers.SerializerMethodField()
+    sku = serializers.CharField(source='variant.sku', read_only=True)
+    user = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StockMovement
+        fields = (
+            'id', 'variant', 'product', 'sku',
+            'quantity', 'operation_type', 'user', 'comment', 'created_at',
+        )
+
+    @extend_schema_field(serializers.DictField())
+    def get_product(self, obj):
+        product = obj.variant.product
+        return {'id': product.id, 'name': product.name, 'slug': product.slug}
+
+    @extend_schema_field(serializers.DictField())
+    def get_user(self, obj):
+        if not obj.user:
+            return None
+        return {
+            'id': obj.user.id,
+            'email': obj.user.email,
+            'full_name': obj.user.full_name,
+        }
 
 
 class ReviewImageSerializer(serializers.ModelSerializer):

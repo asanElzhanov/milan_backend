@@ -3,7 +3,7 @@ from django.db.models import DecimalField, Exists, F, Min, OuterRef, Q
 from django.db.models.functions import Coalesce
 import django_filters
 
-from .models import Product, ProductVariant
+from .models import Product, ProductVariant, StockMovement
 
 
 def with_product_list_annotations(queryset):
@@ -88,3 +88,74 @@ class ProductFilter(django_filters.FilterSet):
 
     def filter_has_discount(self, queryset, name, value):
         return self.filter_is_sale(queryset, name, value)
+
+
+class StockVariantFilter(django_filters.FilterSet):
+    product = django_filters.CharFilter(method='filter_product')
+    product_slug = django_filters.CharFilter(field_name='product__slug')
+    category = django_filters.CharFilter(method='filter_category')
+    category_slug = django_filters.CharFilter(field_name='product__category__slug')
+    brand = django_filters.CharFilter(method='filter_brand')
+    brand_slug = django_filters.CharFilter(field_name='product__brand__slug')
+    size = django_filters.CharFilter(method='filter_size')
+    color = django_filters.CharFilter(method='filter_color')
+    sku = django_filters.CharFilter(field_name='sku', lookup_expr='icontains')
+    in_stock = django_filters.BooleanFilter(method='filter_in_stock')
+    is_active = django_filters.BooleanFilter(field_name='is_active')
+
+    class Meta:
+        model = ProductVariant
+        fields = [
+            'product', 'product_slug', 'category', 'category_slug',
+            'brand', 'brand_slug', 'size', 'color', 'sku',
+            'in_stock', 'is_active',
+        ]
+
+    def filter_product(self, queryset, name, value):
+        if value.isdigit():
+            return queryset.filter(product_id=value)
+        return queryset.filter(product__slug=value)
+
+    def filter_category(self, queryset, name, value):
+        if value.isdigit():
+            return queryset.filter(product__category_id=value)
+        return queryset.filter(product__category__slug=value)
+
+    def filter_brand(self, queryset, name, value):
+        if value.isdigit():
+            return queryset.filter(product__brand_id=value)
+        return queryset.filter(product__brand__slug=value)
+
+    def filter_size(self, queryset, name, value):
+        if value.isdigit():
+            return queryset.filter(size_id=value)
+        return queryset.filter(size__value=value)
+
+    def filter_color(self, queryset, name, value):
+        if value.isdigit():
+            return queryset.filter(color_id=value)
+        return queryset.filter(color__slug=value)
+
+    def filter_in_stock(self, queryset, name, value):
+        if value:
+            return queryset.filter(is_active=True, stock_quantity__gt=0)
+        return queryset.filter(models.Q(is_active=False) | models.Q(stock_quantity=0))
+
+
+class StockMovementFilter(django_filters.FilterSet):
+    variant = django_filters.NumberFilter(field_name='variant_id')
+    product = django_filters.CharFilter(method='filter_product')
+    sku = django_filters.CharFilter(field_name='variant__sku', lookup_expr='icontains')
+    operation_type = django_filters.CharFilter(field_name='operation_type')
+    user = django_filters.NumberFilter(field_name='user_id')
+    date_from = django_filters.IsoDateTimeFilter(field_name='created_at', lookup_expr='gte')
+    date_to = django_filters.IsoDateTimeFilter(field_name='created_at', lookup_expr='lte')
+
+    class Meta:
+        model = StockMovement
+        fields = ['variant', 'product', 'sku', 'operation_type', 'user', 'date_from', 'date_to']
+
+    def filter_product(self, queryset, name, value):
+        if value.isdigit():
+            return queryset.filter(variant__product_id=value)
+        return queryset.filter(variant__product__slug=value)

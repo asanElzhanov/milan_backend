@@ -7,17 +7,20 @@ from rest_framework import filters, generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.permissions import IsManagerOrAdmin
+
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
-    ProductMedia, ProductVariant, Promo, Review, Size,
+    ProductMedia, ProductVariant, Promo, Review, Size, StockMovement,
 )
 from .serializers import (
     CategorySerializer, CategoryTreeSerializer, BrandSerializer, ColorSerializer, SizeSerializer,
     ProductListSerializer, ProductDetailSerializer,
     ReviewSerializer, ReviewCreateSerializer,
     BannerSerializer, PromoCheckSerializer,
+    StockMovementSerializer, StockVariantSerializer,
 )
-from .filters import ProductFilter, with_product_list_annotations
+from .filters import ProductFilter, StockMovementFilter, StockVariantFilter, with_product_list_annotations
 
 
 def _parse_bool(value):
@@ -301,6 +304,80 @@ class ProductDetailView(generics.RetrieveAPIView):
         tags=['Catalog / Products'],
         summary='Карточка товара',
         responses={200: ProductDetailSerializer, 404: OpenApiResponse(description='Товар не найден')},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+class StockVariantListView(generics.ListAPIView):
+    """GET /catalog/stock/ — остатки по вариантам товаров"""
+    serializer_class = StockVariantSerializer
+    permission_classes = [IsManagerOrAdmin]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = StockVariantFilter
+    search_fields = ['sku', 'product__name', 'product__slug']
+    ordering_fields = ['stock_quantity', 'sku', 'product__name']
+    ordering = ['product__name', 'sku']
+
+    def get_queryset(self):
+        return ProductVariant.objects.select_related(
+            'product__category', 'product__brand', 'size', 'color',
+        )
+
+    @extend_schema(
+        tags=['Catalog / Stock'],
+        summary='Список остатков по вариантам',
+        parameters=[
+            OpenApiParameter('product', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('product_slug', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('category', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('category_slug', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('brand', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('brand_slug', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('size', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('color', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('sku', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('in_stock', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
+            OpenApiParameter('is_active', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
+        ],
+        responses={200: StockVariantSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+class StockMovementListView(generics.ListAPIView):
+    """GET /catalog/stock/movements/ — история движений склада"""
+    serializer_class = StockMovementSerializer
+    permission_classes = [IsManagerOrAdmin]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = StockMovementFilter
+    search_fields = ['variant__sku', 'variant__product__name', 'variant__product__slug', 'comment']
+    ordering_fields = ['created_at', 'operation_type', 'quantity']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        return StockMovement.objects.select_related(
+            'variant__product__category',
+            'variant__product__brand',
+            'variant__size',
+            'variant__color',
+            'user',
+        )
+
+    @extend_schema(
+        tags=['Catalog / Stock'],
+        summary='История движений склада',
+        parameters=[
+            OpenApiParameter('variant', OpenApiTypes.INT, OpenApiParameter.QUERY),
+            OpenApiParameter('product', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('sku', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('operation_type', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('user', OpenApiTypes.INT, OpenApiParameter.QUERY),
+            OpenApiParameter('date_from', OpenApiTypes.DATETIME, OpenApiParameter.QUERY),
+            OpenApiParameter('date_to', OpenApiTypes.DATETIME, OpenApiParameter.QUERY),
+        ],
+        responses={200: StockMovementSerializer(many=True)},
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
