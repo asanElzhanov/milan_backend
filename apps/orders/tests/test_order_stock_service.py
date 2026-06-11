@@ -24,7 +24,7 @@ class OrderStockServiceTests(TestCase):
             sku='VAR-ORDER-STOCK',
             stock_quantity=5,
         )
-        self.cart = Cart.objects.create(session_key='stock-service-session')
+        self.cart = Cart.objects.create()
         CartItem.objects.create(cart=self.cart, variant=self.variant, quantity=2)
 
     def test_order_create_decreases_stock_through_stock_service(self):

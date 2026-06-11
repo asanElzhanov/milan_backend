@@ -3,6 +3,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_seriali
 from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+import uuid
 
 from .models import Order, Cart, CartItem
 from .serializers import (
@@ -23,16 +24,22 @@ CartItemQuantityUpdateSerializer = inline_serializer(
 
 
 def get_or_create_cart(request):
-    """Получить корзину — для авторизованного по user, для гостя по session"""
+    """Получить корзину — для авторизованного по user, для гостя по token."""
     if request.user.is_authenticated:
-        cart, _ = Cart.objects.get_or_create(user=request.user)
+        cart, _ = Cart.objects.get_or_create(user=request.user, is_active=True)
     else:
-        if not request.session.session_key:
-            request.session.create()
-        cart, _ = Cart.objects.get_or_create(
-            session_key=request.session.session_key,
-            user=None,
-        )
+        raw_token = request.headers.get('X-Cart-Token') or request.query_params.get('cart_token')
+        token = None
+        if raw_token:
+            try:
+                token = uuid.UUID(str(raw_token))
+            except ValueError:
+                token = None
+
+        if token:
+            cart, _ = Cart.objects.get_or_create(token=token, user=None, defaults={'is_active': True})
+        else:
+            cart = Cart.objects.create(user=None, is_active=True)
     return cart
 
 
@@ -131,7 +138,7 @@ class CartClearView(APIView):
     )
     def delete(self, request):
         cart = get_or_create_cart(request)
-        cart.cart_items.all().delete()
+        cart.items.all().delete()
         return Response({'detail': 'Корзина очищена'})
 
 

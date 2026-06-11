@@ -1,8 +1,10 @@
 from decimal import Decimal
-
-from django.db import models
-from django.utils.translation import gettext_lazy as _
 import uuid
+
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.db.models import Q
+from django.utils.translation import gettext_lazy as _
 
 
 class Order(models.Model):
@@ -118,40 +120,87 @@ class OrderStatusHistory(models.Model):
 
 
 class Cart(models.Model):
-    """Корзина — для гостей по session_key, для пользователей по user"""
-    user = models.OneToOneField(
-        'accounts.User', on_delete=models.CASCADE, null=True, blank=True, related_name='cart'
+    """Корзина пользователя или гостя."""
+    user = models.ForeignKey(
+        'accounts.User',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='carts',
     )
-    session_key = models.CharField(max_length=40, blank=True, db_index=True)
+    token = models.UUIDField(
+        _('guest cart token'),
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        default=uuid.uuid4,
+    )
+    is_active = models.BooleanField(_('активна'), default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = _('корзина')
+        verbose_name_plural = _('корзины')
+        indexes = [
+            models.Index(fields=['user']),
+            models.Index(fields=['token']),
+            models.Index(fields=['is_active']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user'],
+                condition=Q(user__isnull=False, is_active=True),
+                name='unique_active_cart_per_user',
+            ),
+        ]
 
     def __str__(self):
-        return f'Корзина {self.user or self.session_key}'
+        owner = self.user or self.token
+        return f'Корзина {owner}'
 
     @property
     def total(self) -> Decimal:
-        return sum(item.total_price for item in self.cart_items.all())
+        return sum(item.total_price for item in self.items.all())
 
     @property
     def items_count(self) -> int:
-        return sum(item.quantity for item in self.cart_items.all())
+        return sum(item.quantity for item in self.items.all())
 
 
 class CartItem(models.Model):
-    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='cart_items')
-    variant = models.ForeignKey('catalog.ProductVariant', on_delete=models.CASCADE)
+    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='items')
+    variant = models.ForeignKey(
+        'catalog.ProductVariant',
+        on_delete=models.CASCADE,
+        related_name='cart_items',
+    )
     quantity = models.PositiveSmallIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ('cart', 'variant')
         verbose_name = _('позиция корзины')
+        verbose_name_plural = _('позиции корзины')
+        indexes = [
+            models.Index(fields=['cart']),
+            models.Index(fields=['variant']),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=['cart', 'variant'], name='unique_cart_variant'),
+            models.CheckConstraint(check=Q(quantity__gt=0), name='cart_item_quantity_positive'),
+        ]
 
     def __str__(self):
         return f'{self.variant} x{self.quantity}'
+
+    def clean(self):
+        super().clean()
+        if self.variant_id and not self.variant.is_active:
+            raise ValidationError({'variant': _('Вариант товара неактивен.')})
+        if self.variant_id and not self.variant.product.is_active:
+            raise ValidationError({'variant': _('Товар неактивен.')})
 
     @property
     def total_price(self) -> Decimal:

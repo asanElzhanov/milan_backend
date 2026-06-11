@@ -41,13 +41,13 @@ class CartItemSerializer(serializers.ModelSerializer):
 
 
 class CartSerializer(serializers.ModelSerializer):
-    items = CartItemSerializer(source='cart_items', many=True, read_only=True)
+    items = CartItemSerializer(many=True, read_only=True)
     total = serializers.ReadOnlyField()
     items_count = serializers.ReadOnlyField()
 
     class Meta:
         model = Cart
-        fields = ('id', 'items', 'total', 'items_count', 'updated_at')
+        fields = ('id', 'token', 'items', 'total', 'items_count', 'updated_at')
 
 
 class CartItemAddSerializer(serializers.Serializer):
@@ -56,10 +56,12 @@ class CartItemAddSerializer(serializers.Serializer):
 
     def validate_variant_id(self, value):
         try:
-            variant = ProductVariant.objects.get(pk=value)
+            variant = ProductVariant.objects.select_related('product').get(pk=value)
         except ProductVariant.DoesNotExist:
             raise serializers.ValidationError('Вариант товара не найден')
         if not variant.is_available:
+            raise serializers.ValidationError('Товар недоступен')
+        if not variant.product.is_active:
             raise serializers.ValidationError('Товар недоступен')
         return value
 
@@ -123,7 +125,7 @@ class OrderCreateSerializer(serializers.Serializer):
 
     def validate(self, data):
         cart = self.context['cart']
-        if not cart.cart_items.exists():
+        if not cart.items.exists():
             raise serializers.ValidationError('Корзина пуста')
 
         # Проверяем промокод
@@ -144,7 +146,7 @@ class OrderCreateSerializer(serializers.Serializer):
         promo = validated_data.pop('promo', None)
 
         # Считаем subtotal
-        items_data = list(cart.cart_items.select_related(
+        items_data = list(cart.items.select_related(
             'variant__product', 'variant__color', 'variant__size'
         ))
         subtotal = sum(item.total_price for item in items_data)
@@ -189,7 +191,7 @@ class OrderCreateSerializer(serializers.Serializer):
             Promo.objects.filter(pk=promo.pk).update(used_count=models.F('used_count') + 1)
 
         # Очищаем корзину
-        cart.cart_items.all().delete()
+        cart.items.all().delete()
 
         # Запись в историю
         OrderStatusHistory.objects.create(order=order, status=Order.Status.PENDING)
