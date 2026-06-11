@@ -8,7 +8,7 @@ from apps.catalog.models import ProductImage
 
 from .models import Order
 from .serializers import (
-    CartSerializer, CartItemAddSerializer, CartItemQuantityUpdateSerializer,
+    CartSerializer, CartItemAddSerializer, CartItemQuantityUpdateSerializer, CartMergeSerializer,
     OrderSerializer, OrderCreateSerializer,
 )
 from .services import CartError, CartNotFoundError, CartService
@@ -198,6 +198,30 @@ class CartClearView(APIView):
         try:
             cart = get_current_cart(request)
             cart = CartService.clear_cart(cart)
+            cart = load_cart_for_response(cart)
+        except CartError as exc:
+            return cart_error_response(exc)
+        return Response(CartSerializer(cart, context={'request': request}).data)
+
+
+class CartMergeView(APIView):
+    """POST /orders/cart/merge/"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        tags=['Cart'],
+        summary='Объединить гостевую корзину с корзиной пользователя',
+        request=CartMergeSerializer,
+        responses={200: CartSerializer, 400: OrderDetailResponseSerializer},
+    )
+    def post(self, request):
+        serializer = CartMergeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            cart = CartService.merge_guest_cart_to_user_cart(
+                guest_token=serializer.validated_data['guest_cart_token'],
+                user=request.user,
+            )
             cart = load_cart_for_response(cart)
         except CartError as exc:
             return cart_error_response(exc)

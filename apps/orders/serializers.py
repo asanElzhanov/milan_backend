@@ -107,6 +107,10 @@ class CartItemQuantityUpdateSerializer(serializers.Serializer):
     quantity = serializers.IntegerField(min_value=1)
 
 
+class CartMergeSerializer(serializers.Serializer):
+    guest_cart_token = serializers.UUIDField()
+
+
 class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderItem

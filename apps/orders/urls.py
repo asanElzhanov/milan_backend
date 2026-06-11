@@ -7,6 +7,7 @@ urlpatterns = [
     path('cart/items/', views.CartAddView.as_view(), name='cart-item-create'),
     path('cart/items/<int:pk>/', views.CartItemUpdateView.as_view(), name='cart-item-detail'),
     path('cart/clear/', views.CartClearView.as_view(), name='cart-clear'),
+    path('cart/merge/', views.CartMergeView.as_view(), name='cart-merge'),
 
     # Backward-compatible cart aliases
     path('cart/add/', views.CartAddView.as_view(), name='cart-add'),
