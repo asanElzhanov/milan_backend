@@ -14,6 +14,7 @@ from apps.catalog.models import (
     Brand, Category, Color, Product, ProductImage,
     ProductMedia, ProductVariant, Review, Size,
 )
+from apps.orders.models import Order
 
 
 class ProductDetailApiTests(APITestCase):
@@ -51,6 +52,20 @@ class ProductDetailApiTests(APITestCase):
 
     def make_image_file(self, name='product.jpg'):
         return SimpleUploadedFile(name, b'image content', content_type='image/jpeg')
+
+    def make_order(self, user, suffix):
+        return Order.objects.create(
+            user=user,
+            customer_name=f'Customer {suffix}',
+            phone='+77011234567',
+            email=user.email,
+            city='Almaty',
+            delivery_address='Abay 10',
+            delivery_method=Order.DeliveryMethod.COURIER,
+            total_amount=Decimal('100.00'),
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+        )
 
     def test_get_product_by_slug(self):
         response = self.client.get(self.detail_url())
@@ -181,14 +196,29 @@ class ProductDetailApiTests(APITestCase):
         first_user = User.objects.create_user(email='first@example.com')
         second_user = User.objects.create_user(email='second@example.com')
         third_user = User.objects.create_user(email='third@example.com')
-        Review.objects.create(product=self.product, user=first_user, rating=5, text='Great')
-        Review.objects.create(product=self.product, user=second_user, rating=3, text='Good')
+        Review.objects.create(
+            product=self.product,
+            user=first_user,
+            order=self.make_order(first_user, 'First'),
+            rating=5,
+            text='Great',
+            status=Review.Status.PUBLISHED,
+        )
+        Review.objects.create(
+            product=self.product,
+            user=second_user,
+            order=self.make_order(second_user, 'Second'),
+            rating=3,
+            text='Good',
+            status=Review.Status.PUBLISHED,
+        )
         Review.objects.create(
             product=self.product,
             user=third_user,
+            order=self.make_order(third_user, 'Third'),
             rating=1,
             text='Hidden',
-            is_approved=False,
+            status=Review.Status.HIDDEN,
         )
 
         response = self.client.get(self.detail_url())
@@ -226,8 +256,22 @@ class ProductDetailApiTests(APITestCase):
         )
         first_user = User.objects.create_user(email='perf-first@example.com')
         second_user = User.objects.create_user(email='perf-second@example.com')
-        Review.objects.create(product=self.product, user=first_user, rating=5, text='Great')
-        Review.objects.create(product=self.product, user=second_user, rating=4, text='Good')
+        Review.objects.create(
+            product=self.product,
+            user=first_user,
+            order=self.make_order(first_user, 'Perf First'),
+            rating=5,
+            text='Great',
+            status=Review.Status.PUBLISHED,
+        )
+        Review.objects.create(
+            product=self.product,
+            user=second_user,
+            order=self.make_order(second_user, 'Perf Second'),
+            rating=4,
+            text='Good',
+            status=Review.Status.PUBLISHED,
+        )
 
         with CaptureQueriesContext(connection) as captured:
             response = self.client.get(self.detail_url())

@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils.text import slugify
@@ -485,23 +486,58 @@ class StockMovement(models.Model):
 
 
 class Review(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', _('На модерации')
+        PUBLISHED = 'published', _('Опубликован')
+        REJECTED = 'rejected', _('Отклонён')
+        HIDDEN = 'hidden', _('Скрыт')
+
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='reviews')
-    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, related_name='reviews')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reviews')
+    order = models.ForeignKey('orders.Order', on_delete=models.CASCADE, related_name='reviews')
     rating = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(5)]
     )
     text = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     is_verified_purchase = models.BooleanField(default=False)
-    is_approved = models.BooleanField(default=True)
+    moderated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='moderated_reviews',
+    )
+    moderated_at = models.DateTimeField(null=True, blank=True)
+    moderation_comment = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = _('отзыв')
-        unique_together = ('product', 'user')
+        verbose_name_plural = _('отзывы')
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['product']),
+            models.Index(fields=['user']),
+            models.Index(fields=['order']),
+            models.Index(fields=['status']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['rating']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['product', 'user', 'order'],
+                name='unique_review_per_product_user_order',
+            ),
+            models.CheckConstraint(
+                check=models.Q(rating__gte=1) & models.Q(rating__lte=5),
+                name='review_rating_between_1_and_5',
+            ),
+        ]
 
     def __str__(self):
-        return f'{self.product} — {self.rating}★'
+        return f'{self.product} — {self.user} — {self.rating}★'
 
 
 class ReviewImage(models.Model):

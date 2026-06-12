@@ -1,5 +1,7 @@
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
+from apps.orders.models import Order
+
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
     ProductMedia, ProductVariant, Promo, Review, ReviewImage, Size, StockMovement,
@@ -178,7 +180,10 @@ class ReviewSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Review
-        fields = ('id', 'user_name', 'rating', 'text', 'images', 'is_verified_purchase', 'created_at')
+        fields = (
+            'id', 'user_name', 'rating', 'text', 'status',
+            'images', 'is_verified_purchase', 'created_at', 'updated_at',
+        )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_user_name(self, obj):
@@ -186,14 +191,27 @@ class ReviewSerializer(serializers.ModelSerializer):
 
 
 class ReviewCreateSerializer(serializers.ModelSerializer):
+    order = serializers.PrimaryKeyRelatedField(queryset=Order.objects.all())
+
     class Meta:
         model = Review
-        fields = ('rating', 'text')
+        fields = ('order', 'rating', 'text')
+
+    def validate(self, attrs):
+        request = self.context['request']
+        product = self.context['product']
+        order = attrs['order']
+        if Review.objects.filter(product=product, user=request.user, order=order).exists():
+            raise serializers.ValidationError(
+                'Вы уже оставили отзыв на этот товар в рамках этого заказа.'
+            )
+        return attrs
 
     def create(self, validated_data):
         return Review.objects.create(
             user=self.context['request'].user,
             product=self.context['product'],
+            is_verified_purchase=True,
             **validated_data,
         )
 
@@ -340,7 +358,12 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     def get_reviews(self, obj):
         reviews = getattr(obj, 'approved_reviews', None)
         if reviews is None:
-            reviews = obj.reviews.filter(is_approved=True).select_related('user').prefetch_related('images')
+            reviews = (
+                obj.reviews
+                .filter(status=Review.Status.PUBLISHED)
+                .select_related('user')
+                .prefetch_related('images')
+            )
         return ReviewSerializer(list(reviews)[:5], many=True).data
 
     @extend_schema_field(OpenApiTypes.FLOAT)
@@ -360,7 +383,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
         reviews = getattr(obj, 'approved_reviews', None)
         if reviews is not None:
             return len(reviews)
-        return obj.reviews.filter(is_approved=True).count()
+        return obj.reviews.filter(status=Review.Status.PUBLISHED).count()
 
     @extend_schema_field(SizeSerializer(many=True))
     def get_available_sizes(self, obj):

@@ -312,7 +312,7 @@ class ProductDetailView(generics.RetrieveAPIView):
             ),
             Prefetch(
                 'reviews',
-                queryset=Review.objects.filter(is_approved=True)
+                queryset=Review.objects.filter(status=Review.Status.PUBLISHED)
                 .select_related('user')
                 .prefetch_related('images')
                 .order_by('-created_at'),
@@ -496,7 +496,7 @@ class ReviewListCreateView(generics.ListCreateAPIView):
             return Review.objects.none()
         return Review.objects.filter(
             product__slug=self.kwargs['slug'],
-            is_approved=True
+            status=Review.Status.PUBLISHED,
         ).select_related('user').prefetch_related('images')
 
     def get_serializer_context(self):
@@ -509,12 +509,16 @@ class ReviewListCreateView(generics.ListCreateAPIView):
         self._update_product_rating(review.product)
 
     def _update_product_rating(self, product):
-        reviews = Review.objects.filter(product=product, is_approved=True)
+        reviews = Review.objects.filter(product=product, status=Review.Status.PUBLISHED)
         count = reviews.count()
         if count > 0:
             avg = sum(r.rating for r in reviews) / count
             product.rating = round(avg, 2)
             product.reviews_count = count
+            product.save(update_fields=['rating', 'reviews_count'])
+        else:
+            product.rating = 0
+            product.reviews_count = 0
             product.save(update_fields=['rating', 'reviews_count'])
 
     @extend_schema(

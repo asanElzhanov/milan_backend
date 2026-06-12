@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.db import models
 from django.db.models import Exists, OuterRef
+from django.utils import timezone
 from mptt.admin import MPTTModelAdmin
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
@@ -215,6 +216,67 @@ class ProductMediaAdmin(admin.ModelAdmin):
     autocomplete_fields = ('product',)
     readonly_fields = ('created_at', 'updated_at')
 
+
+@admin.register(Review)
+class ReviewAdmin(admin.ModelAdmin):
+    list_display = (
+        'product', 'user', 'order', 'rating', 'status',
+        'is_verified_purchase', 'moderated_by', 'created_at',
+    )
+    list_filter = (
+        'status', 'rating', 'is_verified_purchase',
+        'created_at', 'moderated_at',
+    )
+    search_fields = (
+        'product__name', 'product__slug',
+        'user__email', 'order__order_number', 'text',
+    )
+    autocomplete_fields = ('product', 'user', 'order', 'moderated_by')
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('-created_at',)
+    actions = ('publish_reviews', 'reject_reviews', 'hide_reviews')
+    fieldsets = (
+        ('Отзыв', {
+            'fields': ('product', 'user', 'order', 'rating', 'text', 'is_verified_purchase'),
+        }),
+        ('Модерация', {
+            'fields': ('status', 'moderated_by', 'moderated_at', 'moderation_comment'),
+        }),
+        ('Системные поля', {
+            'fields': ('created_at', 'updated_at'),
+        }),
+    )
+
+    def save_model(self, request, obj, form, change):
+        if 'status' in form.changed_data:
+            obj.moderated_by = request.user
+            obj.moderated_at = timezone.now()
+        super().save_model(request, obj, form, change)
+
+    @admin.action(description='Опубликовать выбранные отзывы')
+    def publish_reviews(self, request, queryset):
+        queryset.update(
+            status=Review.Status.PUBLISHED,
+            moderated_by=request.user,
+            moderated_at=timezone.now(),
+        )
+
+    @admin.action(description='Отклонить выбранные отзывы')
+    def reject_reviews(self, request, queryset):
+        queryset.update(
+            status=Review.Status.REJECTED,
+            moderated_by=request.user,
+            moderated_at=timezone.now(),
+        )
+
+    @admin.action(description='Скрыть выбранные отзывы')
+    def hide_reviews(self, request, queryset):
+        queryset.update(
+            status=Review.Status.HIDDEN,
+            moderated_by=request.user,
+            moderated_at=timezone.now(),
+        )
+
 @admin.register(Category)
 class CategoryAdmin(MPTTModelAdmin):
     list_display = ('name', 'slug', 'parent', 'is_active', 'sort_order')
@@ -253,7 +315,5 @@ class SizeAdmin(admin.ModelAdmin):
     list_editable = ('sort_order', 'is_active')
     readonly_fields = ('created_at', 'updated_at')
 
-
-admin.site.register(Review)
 admin.site.register(Banner)
 admin.site.register(Promo)
