@@ -72,8 +72,11 @@ class CheckoutServiceTests(TestCase):
         self.assertEqual(order.customer_name, 'Customer Name')
         self.assertEqual(order.delivery_method_ref, self.courier_delivery)
         self.assertEqual(order.delivery_method, 'courier')
+        self.assertEqual(order.delivery_method_code, 'courier')
         self.assertEqual(order.delivery_method_name, 'Курьерская доставка')
+        self.assertEqual(order.items_total, Decimal('340.00'))
         self.assertEqual(order.delivery_price, Decimal('1000.00'))
+        self.assertFalse(order.delivery_requires_manager_calculation)
         self.assertTrue(order.delivery_price_is_final)
         self.assertEqual(order.total_amount, Decimal('1340.00'))
         self.assertEqual(order.status, Order.Status.NEW)
@@ -128,8 +131,78 @@ class CheckoutServiceTests(TestCase):
 
         self.assertEqual(order.delivery_method_ref, delivery)
         self.assertEqual(order.delivery_price, Decimal('0.00'))
+        self.assertTrue(order.delivery_requires_manager_calculation)
         self.assertFalse(order.delivery_price_is_final)
         self.assertEqual(order.total_amount, Decimal('340.00'))
+
+    def test_checkout_with_pickup_allows_blank_address_and_free_delivery(self):
+        delivery = DeliveryMethod.objects.get(code='pickup')
+        delivery.price_type = DeliveryMethod.PriceType.FREE
+        delivery.base_price = Decimal('0.00')
+        delivery.save(update_fields=['price_type', 'base_price', 'updated_at'])
+        cart = self.create_cart()
+
+        order = CheckoutService.checkout(
+            cart=cart,
+            user=self.user,
+            customer_name='Customer Name',
+            phone='+77011234567',
+            email='customer@example.com',
+            city='Almaty',
+            delivery_address='',
+            delivery_method='pickup',
+        )
+
+        self.assertEqual(order.delivery_method_code, 'pickup')
+        self.assertEqual(order.items_total, Decimal('340.00'))
+        self.assertEqual(order.delivery_price, Decimal('0.00'))
+        self.assertFalse(order.delivery_requires_manager_calculation)
+        self.assertEqual(order.total_amount, Decimal('340.00'))
+
+    def test_checkout_with_free_from_amount_makes_delivery_free(self):
+        self.courier_delivery.free_from_amount = Decimal('300.00')
+        self.courier_delivery.save(update_fields=['free_from_amount', 'updated_at'])
+        cart = self.create_cart()
+
+        order = self.checkout(cart)
+
+        self.assertEqual(order.items_total, Decimal('340.00'))
+        self.assertEqual(order.delivery_price, Decimal('0.00'))
+        self.assertEqual(order.total_amount, Decimal('340.00'))
+
+    def test_checkout_rejects_courier_without_delivery_address(self):
+        cart = self.create_cart()
+
+        with self.assertRaises(InvalidCheckoutDataError):
+            CheckoutService.checkout(
+                cart=cart,
+                user=self.user,
+                customer_name='Customer Name',
+                phone='+77011234567',
+                email='customer@example.com',
+                city='Almaty',
+                delivery_address='',
+                delivery_method='courier',
+            )
+
+        self.assertFalse(Order.objects.exists())
+
+    def test_checkout_accepts_delivery_method_id(self):
+        cart = self.create_cart()
+
+        order = CheckoutService.checkout(
+            cart=cart,
+            user=self.user,
+            customer_name='Customer Name',
+            phone='+77011234567',
+            email='customer@example.com',
+            city='Almaty',
+            delivery_address='Abay 10',
+            delivery_method=self.courier_delivery.id,
+        )
+
+        self.assertEqual(order.delivery_method_ref, self.courier_delivery)
+        self.assertEqual(order.delivery_method_code, self.courier_delivery.code)
 
     def test_checkout_rejects_inactive_delivery_method(self):
         self.courier_delivery.is_active = False

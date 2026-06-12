@@ -56,13 +56,25 @@ class Order(models.Model):
         related_name='orders',
         verbose_name=_('способ доставки'),
     )
+    delivery_method_code = models.CharField(_('код способа доставки'), max_length=50, blank=True)
     delivery_method_name = models.CharField(_('название способа доставки'), max_length=120, blank=True)
+    items_total = models.DecimalField(
+        _('сумма товаров'),
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00'))],
+    )
     delivery_price = models.DecimalField(
         _('стоимость доставки'),
         max_digits=10,
         decimal_places=2,
         default=Decimal('0.00'),
         validators=[MinValueValidator(Decimal('0.00'))],
+    )
+    delivery_requires_manager_calculation = models.BooleanField(
+        _('стоимость доставки требует расчета менеджером'),
+        default=False,
     )
     delivery_price_is_final = models.BooleanField(_('стоимость доставки финальная'), default=True)
     total_amount = models.DecimalField(
@@ -102,6 +114,10 @@ class Order(models.Model):
             models.CheckConstraint(
                 check=Q(delivery_price__gte=0),
                 name='order_delivery_price_non_negative',
+            ),
+            models.CheckConstraint(
+                check=Q(items_total__gte=0),
+                name='order_items_total_non_negative',
             ),
         ]
 
@@ -196,6 +212,7 @@ class DeliveryMethod(models.Model):
         if not self.slug:
             self.slug = slugify(self.name, allow_unicode=True)
         super().save(*args, **kwargs)
+
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')

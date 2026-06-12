@@ -52,7 +52,8 @@ class OrderAdmin(admin.ModelAdmin):
     )
     list_filter = ('status', 'payment_status', 'delivery_method_ref', 'delivery_method', 'city', 'created_at')
     readonly_fields = (
-        'order_number', 'delivery_method_name', 'delivery_price',
+        'order_number', 'delivery_method_code', 'delivery_method_name',
+        'items_total', 'delivery_price', 'delivery_requires_manager_calculation',
         'delivery_price_is_final', 'total_amount', 'created_at', 'updated_at',
     )
     ordering = ('-created_at',)

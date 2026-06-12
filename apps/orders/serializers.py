@@ -141,7 +141,8 @@ class OrderListSerializer(serializers.ModelSerializer):
         model = Order
         fields = (
             'order_number', 'status', 'payment_status',
-            'delivery_method', 'delivery_method_name', 'delivery_price',
+            'delivery_method', 'delivery_method_code', 'delivery_method_name',
+            'items_total', 'delivery_price', 'delivery_requires_manager_calculation',
             'delivery_price_is_final', 'total_amount', 'items_count', 'created_at',
         )
 
@@ -155,7 +156,9 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         fields = (
             'order_number', 'customer_name', 'phone', 'email',
             'city', 'delivery_address', 'delivery_method',
-            'delivery_method_name', 'delivery_price', 'delivery_price_is_final',
+            'delivery_method_code', 'delivery_method_name',
+            'items_total', 'delivery_price', 'delivery_requires_manager_calculation',
+            'delivery_price_is_final',
             'total_amount', 'status', 'payment_status', 'comment',
             'items', 'status_history',
             'created_at',
@@ -174,13 +177,21 @@ class CheckoutSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=30)
     comment = serializers.CharField(required=False, allow_blank=True)
 
-    delivery_method = serializers.CharField(max_length=50)
+    delivery_method = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    delivery_method_code = serializers.CharField(max_length=50, required=False, allow_blank=True, write_only=True)
+    delivery_method_id = serializers.IntegerField(min_value=1, required=False, write_only=True)
     delivery_address = serializers.CharField(required=False, allow_blank=True)
     city = serializers.CharField(required=False, allow_blank=True)
     delivery_city = serializers.CharField(required=False, allow_blank=True, write_only=True)
     delivery_country = serializers.CharField(default='Казахстан', write_only=True)
     delivery_postal_code = serializers.CharField(required=False, allow_blank=True)
     cart_token = serializers.UUIDField(required=False, write_only=True)
+    delivery_price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        write_only=True,
+    )
 
     def validate(self, data):
         cart = self.context['cart']
@@ -196,6 +207,13 @@ class CheckoutSerializer(serializers.Serializer):
 
         if not data.get('city') and data.get('delivery_city'):
             data['city'] = data['delivery_city']
+
+        delivery_method = data.get('delivery_method') or data.get('delivery_method_code')
+        if data.get('delivery_method_id'):
+            delivery_method = data['delivery_method_id']
+        if not delivery_method:
+            raise serializers.ValidationError({'delivery_method': 'Укажите способ доставки'})
+        data['delivery_method'] = delivery_method
 
         return data
 

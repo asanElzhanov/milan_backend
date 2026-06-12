@@ -439,8 +439,11 @@ class CheckoutService:
                 delivery_address=checkout_data.get('delivery_address') or '',
                 delivery_method=delivery_method.code,
                 delivery_method_ref=delivery_method,
+                delivery_method_code=delivery_method.code,
                 delivery_method_name=delivery_method.name,
+                items_total=items_subtotal,
                 delivery_price=delivery.delivery_price,
+                delivery_requires_manager_calculation=delivery.requires_manager_calculation,
                 delivery_price_is_final=not delivery.requires_manager_calculation,
                 total_amount=total_amount,
                 status=Order.Status.NEW,
@@ -475,14 +478,27 @@ class CheckoutService:
         for field in cls.required_fields:
             if not data.get(field):
                 raise InvalidCheckoutDataError(f'Поле {field} обязательно.')
-        cls._get_delivery_method(data['delivery_method'])
+        delivery_method = cls._get_delivery_method(data['delivery_method'])
+        if (
+            delivery_method.delivery_type != DeliveryMethod.DeliveryType.PICKUP
+            and not (data.get('delivery_address') or '').strip()
+        ):
+            raise InvalidCheckoutDataError('Адрес доставки обязателен.')
 
     @staticmethod
     def _get_delivery_method(delivery_method):
         try:
-            return DeliveryMethod.objects.get(code=delivery_method, is_active=True)
-        except DeliveryMethod.DoesNotExist as exc:
+            if isinstance(delivery_method, DeliveryMethod):
+                method = delivery_method
+            elif isinstance(delivery_method, int) or str(delivery_method).isdigit():
+                method = DeliveryMethod.objects.get(pk=delivery_method)
+            else:
+                method = DeliveryMethod.objects.get(code=delivery_method)
+        except (DeliveryMethod.DoesNotExist, TypeError, ValueError) as exc:
             raise InvalidCheckoutDataError('Некорректный способ доставки.') from exc
+        if not method.is_active:
+            raise InvalidCheckoutDataError('Некорректный способ доставки.')
+        return method
 
     @staticmethod
     def _get_locked_items(cart):
