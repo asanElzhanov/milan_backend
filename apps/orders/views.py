@@ -90,7 +90,7 @@ def cart_error_response(exc):
 def load_order_for_response(order):
     return (
         Order.objects
-        .select_related('delivery_method_ref')
+        .select_related('delivery_method_ref', 'promo_code')
         .prefetch_related('items', 'status_history')
         .get(pk=order.pk)
     )
@@ -373,7 +373,7 @@ class OrderListView(generics.ListAPIView):
             return Order.objects.none()
         queryset = (
             Order.objects.filter(user=self.request.user)
-            .select_related('delivery_method_ref')
+            .select_related('delivery_method_ref', 'promo_code')
             .annotate(items_count=Count('items'))
             .order_by('-created_at')
         )
@@ -424,7 +424,7 @@ class OrderDetailView(generics.RetrieveAPIView):
             return Order.objects.none()
         return (
             Order.objects.filter(user=self.request.user)
-            .select_related('user', 'delivery_method_ref')
+            .select_related('user', 'delivery_method_ref', 'promo_code')
             .prefetch_related('items', 'status_history')
         )
 

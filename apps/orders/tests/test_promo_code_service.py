@@ -17,6 +17,7 @@ from apps.orders.models import (
     PromoCodeUsage,
 )
 from apps.orders.services import (
+    CartService,
     CheckoutService,
     PromoCodeExpiredError,
     PromoCodeInactiveError,
@@ -162,6 +163,9 @@ class PromoCodeServiceTests(TestCase):
 
         promo_code.refresh_from_db()
         self.assertEqual(promo_code.used_count, 1)
+        self.assertEqual(order.promo_code, promo_code)
+        self.assertEqual(order.promo_code_text, 'PROMO10')
+        self.assertEqual(order.discount_amount, Decimal('24.00'))
         self.assertEqual(order.items_total, Decimal('240.00'))
         self.assertEqual(order.delivery_price, Decimal('1000.00'))
         self.assertEqual(order.total_amount, Decimal('1216.00'))
@@ -180,3 +184,39 @@ class PromoCodeServiceTests(TestCase):
         self.assertEqual(promo_code.used_count, 0)
         self.assertFalse(PromoCodeUsage.objects.exists())
         self.assertFalse(Order.objects.exists())
+
+    def test_checkout_with_fixed_promo_code_saves_discount_snapshot(self):
+        promo_code = self.create_promo_code(
+            discount_type=PromoCode.DiscountType.FIXED,
+            value=Decimal('50.00'),
+        )
+
+        order = self.checkout('PROMO10')
+
+        self.assertEqual(order.promo_code, promo_code)
+        self.assertEqual(order.promo_code_text, 'PROMO10')
+        self.assertEqual(order.discount_amount, Decimal('50.00'))
+        self.assertEqual(order.total_amount, Decimal('1190.00'))
+
+    def test_checkout_uses_promo_code_stored_on_cart(self):
+        promo_code = self.create_promo_code()
+        CartService.apply_promo_code(self.cart, 'PROMO10', user=self.user)
+
+        order = CheckoutService.checkout(
+            cart=self.cart,
+            user=self.user,
+            customer_name='Customer Name',
+            phone='+77011234567',
+            email='customer@example.com',
+            city='Almaty',
+            delivery_address='Abay 10',
+            delivery_method=Order.DeliveryMethod.COURIER,
+        )
+
+        promo_code.refresh_from_db()
+        self.cart.refresh_from_db()
+        self.assertEqual(order.promo_code_text, 'PROMO10')
+        self.assertEqual(order.discount_amount, Decimal('24.00'))
+        self.assertEqual(order.total_amount, Decimal('1216.00'))
+        self.assertEqual(promo_code.used_count, 1)
+        self.assertIsNone(self.cart.promo_code)

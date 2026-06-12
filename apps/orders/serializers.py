@@ -165,7 +165,8 @@ class OrderListSerializer(serializers.ModelSerializer):
             'order_number', 'status', 'payment_status',
             'delivery_method', 'delivery_method_code', 'delivery_method_name',
             'items_total', 'delivery_price', 'delivery_requires_manager_calculation',
-            'delivery_price_is_final', 'total_amount', 'items_count', 'created_at',
+            'delivery_price_is_final', 'promo_code_text', 'discount_amount',
+            'total_amount', 'items_count', 'created_at',
         )
 
 
@@ -180,7 +181,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             'city', 'delivery_address', 'delivery_method',
             'delivery_method_code', 'delivery_method_name',
             'items_total', 'delivery_price', 'delivery_requires_manager_calculation',
-            'delivery_price_is_final',
+            'delivery_price_is_final', 'promo_code_text', 'discount_amount',
             'total_amount', 'status', 'payment_status', 'comment',
             'items', 'status_history',
             'created_at',
@@ -208,6 +209,13 @@ class CheckoutSerializer(serializers.Serializer):
     delivery_country = serializers.CharField(default='Казахстан', write_only=True)
     delivery_postal_code = serializers.CharField(required=False, allow_blank=True)
     cart_token = serializers.UUIDField(required=False, write_only=True)
+    promo_code = serializers.CharField(max_length=50, required=False, allow_blank=True, write_only=True)
+    discount_amount = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        required=False,
+        write_only=True,
+    )
     delivery_price = serializers.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -249,6 +257,7 @@ class CheckoutSerializer(serializers.Serializer):
             city=validated_data.get('city', ''),
             delivery_address=validated_data.get('delivery_address', ''),
             delivery_method=validated_data['delivery_method'],
+            promo_code=validated_data.get('promo_code') or None,
             comment=validated_data.get('comment', ''),
         )
 

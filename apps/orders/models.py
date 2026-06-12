@@ -77,6 +77,22 @@ class Order(models.Model):
         default=False,
     )
     delivery_price_is_final = models.BooleanField(_('стоимость доставки финальная'), default=True)
+    promo_code = models.ForeignKey(
+        'PromoCode',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='orders',
+        verbose_name=_('промокод'),
+    )
+    promo_code_text = models.CharField(_('код промокода'), max_length=50, blank=True)
+    discount_amount = models.DecimalField(
+        _('сумма скидки'),
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00'))],
+    )
     total_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -105,6 +121,7 @@ class Order(models.Model):
             models.Index(fields=['phone']),
             models.Index(fields=['email']),
             models.Index(fields=['delivery_method_ref'], name='orders_orde_deliver_186dd8_idx'),
+            models.Index(fields=['promo_code']),
         ]
         constraints = [
             models.CheckConstraint(
@@ -118,6 +135,10 @@ class Order(models.Model):
             models.CheckConstraint(
                 check=Q(items_total__gte=0),
                 name='order_items_total_non_negative',
+            ),
+            models.CheckConstraint(
+                check=Q(discount_amount__gte=0),
+                name='order_discount_amount_non_negative',
             ),
         ]
 

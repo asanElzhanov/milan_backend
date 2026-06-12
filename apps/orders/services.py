@@ -643,6 +643,11 @@ class CheckoutService:
                 delivery_price=delivery.delivery_price,
                 delivery_requires_manager_calculation=delivery.requires_manager_calculation,
                 delivery_price_is_final=not delivery.requires_manager_calculation,
+                promo_code=promo_code_data['promo_code'] if promo_code_data is not None else None,
+                promo_code_text=(
+                    promo_code_data['promo_code'].code if promo_code_data is not None else ''
+                ),
+                discount_amount=discount_amount,
                 total_amount=total_amount,
                 status=Order.Status.NEW,
                 payment_status=Order.PaymentStatus.UNPAID,
@@ -666,6 +671,9 @@ class CheckoutService:
                 )
 
             locked_cart.items.select_for_update().delete()
+            if locked_cart.promo_code_id:
+                locked_cart.promo_code = None
+                locked_cart.save(update_fields=['promo_code', 'updated_at'])
             OrderStatusHistory.objects.create(
                 order=order,
                 old_status=None,

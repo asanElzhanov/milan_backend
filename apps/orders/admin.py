@@ -46,7 +46,7 @@ class OrderStatusHistoryInline(admin.TabularInline):
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
         'order_number', 'user', 'customer_name', 'phone', 'city',
-        'total_amount', 'delivery_price', 'status', 'payment_status',
+        'total_amount', 'discount_amount', 'delivery_price', 'status', 'payment_status',
         'delivery_method', 'created_at',
     )
     search_fields = (
@@ -57,7 +57,8 @@ class OrderAdmin(admin.ModelAdmin):
     readonly_fields = (
         'order_number', 'delivery_method_code', 'delivery_method_name',
         'items_total', 'delivery_price', 'delivery_requires_manager_calculation',
-        'delivery_price_is_final', 'total_amount', 'created_at', 'updated_at',
+        'delivery_price_is_final', 'promo_code', 'promo_code_text',
+        'discount_amount', 'total_amount', 'created_at', 'updated_at',
     )
     ordering = ('-created_at',)
     inlines = [OrderItemInline, OrderStatusHistoryInline]
@@ -65,7 +66,7 @@ class OrderAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         return (
             super().get_queryset(request)
-            .select_related('user', 'delivery_method_ref')
+            .select_related('user', 'delivery_method_ref', 'promo_code')
             .prefetch_related('items', 'status_history')
         )
 
