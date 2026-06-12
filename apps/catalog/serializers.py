@@ -1,5 +1,7 @@
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
+from django.core.exceptions import ValidationError as DjangoValidationError
+
 from apps.orders.models import Order
 
 from .models import (
@@ -178,13 +180,35 @@ class ReviewImageSerializer(serializers.ModelSerializer):
 class ReviewSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField()
     images = ReviewImageSerializer(many=True, read_only=True)
+    product = serializers.SerializerMethodField()
+    order = serializers.SerializerMethodField()
 
     class Meta:
         model = Review
         fields = (
-            'id', 'user_name', 'rating', 'text', 'status',
-            'images', 'is_verified_purchase', 'created_at', 'updated_at',
+            'id', 'product', 'order', 'user_name', 'rating', 'text',
+            'status', 'images', 'is_verified_purchase', 'created_at', 'updated_at',
         )
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_user_name(self, obj):
+        return obj.user.full_name or 'Покупатель'
+
+    @extend_schema_field(serializers.DictField())
+    def get_product(self, obj):
+        return {'id': obj.product_id, 'slug': obj.product.slug, 'name': obj.product.name}
+
+    @extend_schema_field(serializers.DictField())
+    def get_order(self, obj):
+        return {'id': obj.order_id, 'order_number': obj.order.order_number}
+
+
+class ReviewListSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Review
+        fields = ('id', 'user_name', 'rating', 'text', 'created_at')
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_user_name(self, obj):
@@ -192,25 +216,82 @@ class ReviewSerializer(serializers.ModelSerializer):
 
 
 class ReviewCreateSerializer(serializers.ModelSerializer):
-    order = serializers.PrimaryKeyRelatedField(queryset=Order.objects.all())
+    product_id = serializers.IntegerField(required=False, write_only=True, min_value=1)
+    product_slug = serializers.SlugField(required=False, write_only=True)
+    order_id = serializers.IntegerField(required=False, write_only=True, min_value=1)
+    order_number = serializers.CharField(required=False, write_only=True)
 
     class Meta:
         model = Review
-        fields = ('order', 'rating', 'text')
+        fields = (
+            'id', 'product', 'order',
+            'product_id', 'product_slug', 'order_id', 'order_number',
+            'rating', 'text', 'status', 'created_at',
+        )
+        read_only_fields = ('id', 'product', 'order', 'status', 'created_at')
 
     def validate(self, attrs):
         request = self.context['request']
-        product = self.context['product']
-        order = attrs['order']
-        ProductReviewService.can_review_product(request.user, product, order)
+        product = self._resolve_product(attrs)
+        order = self._resolve_order(attrs)
+        try:
+            ProductReviewService.can_review_product(request.user, product, order)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(self._error_detail(exc)) from exc
+        attrs['product'] = product
+        attrs['order'] = order
         return attrs
 
     def create(self, validated_data):
-        return ProductReviewService.create_review(
-            user=self.context['request'].user,
-            product=self.context['product'],
-            **validated_data,
-        )
+        product = validated_data.pop('product')
+        order = validated_data.pop('order')
+        validated_data.pop('product_id', None)
+        validated_data.pop('product_slug', None)
+        validated_data.pop('order_id', None)
+        validated_data.pop('order_number', None)
+        try:
+            return ProductReviewService.create_review(
+                user=self.context['request'].user,
+                product=product,
+                order=order,
+                **validated_data,
+            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(self._error_detail(exc)) from exc
+
+    @staticmethod
+    def _resolve_product(attrs):
+        product_id = attrs.get('product_id')
+        product_slug = attrs.get('product_slug')
+        if not product_id and not product_slug:
+            raise serializers.ValidationError(
+                {'product': 'Передайте product_id или product_slug.'}
+            )
+        lookup = {'pk': product_id} if product_id else {'slug': product_slug}
+        try:
+            return Product.objects.get(**lookup)
+        except Product.DoesNotExist as exc:
+            raise serializers.ValidationError({'product': 'Товар не найден.'}) from exc
+
+    @staticmethod
+    def _resolve_order(attrs):
+        order_id = attrs.get('order_id')
+        order_number = attrs.get('order_number')
+        if not order_id and not order_number:
+            raise serializers.ValidationError(
+                {'order': 'Передайте order_id или order_number.'}
+            )
+        lookup = {'pk': order_id} if order_id else {'order_number': order_number}
+        try:
+            return Order.objects.get(**lookup)
+        except Order.DoesNotExist as exc:
+            raise serializers.ValidationError({'order': 'Заказ не найден.'}) from exc
+
+    @staticmethod
+    def _error_detail(exc):
+        if hasattr(exc, 'messages') and exc.messages:
+            return exc.messages[0]
+        return str(exc)
 
 
 # Лёгкий сериализатор для списков
@@ -361,7 +442,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
                 .select_related('user')
                 .prefetch_related('images')
             )
-        return ReviewSerializer(list(reviews)[:5], many=True).data
+        return ReviewListSerializer(list(reviews)[:5], many=True).data
 
     @extend_schema_field(OpenApiTypes.FLOAT)
     def get_average_rating(self, obj):

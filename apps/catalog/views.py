@@ -16,7 +16,7 @@ from .models import (
 from .serializers import (
     CategorySerializer, CategoryTreeSerializer, BrandSerializer, ColorSerializer, SizeSerializer,
     ProductListSerializer, ProductDetailSerializer,
-    ReviewSerializer, ReviewCreateSerializer,
+    ReviewSerializer, ReviewCreateSerializer, ReviewListSerializer,
     BannerSerializer, PromoCheckSerializer,
     StockAdjustmentSerializer, StockMovementSerializer, StockVariantSerializer,
 )
@@ -478,18 +478,10 @@ class ProductSimilarView(generics.ListAPIView):
         return super().get(request, *args, **kwargs)
 
 
-class ReviewListCreateView(generics.ListCreateAPIView):
-    """GET/POST /catalog/products/<slug>/reviews/"""
-
-    def get_permissions(self):
-        if self.request.method == 'POST':
-            return [permissions.IsAuthenticated()]
-        return [permissions.AllowAny()]
-
-    def get_serializer_class(self):
-        if self.request.method == 'POST':
-            return ReviewCreateSerializer
-        return ReviewSerializer
+class ProductReviewListView(generics.ListAPIView):
+    """GET /catalog/products/<slug>/reviews/"""
+    serializer_class = ReviewListSerializer
+    permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
@@ -497,37 +489,24 @@ class ReviewListCreateView(generics.ListCreateAPIView):
         return Review.objects.filter(
             product__slug=self.kwargs['slug'],
             status=Review.Status.PUBLISHED,
-        ).select_related('user').prefetch_related('images')
-
-    def get_serializer_context(self):
-        ctx = super().get_serializer_context()
-        ctx['product'] = Product.objects.get(slug=self.kwargs['slug'])
-        return ctx
-
-    def perform_create(self, serializer):
-        review = serializer.save()
-        self._update_product_rating(review.product)
-
-    def _update_product_rating(self, product):
-        reviews = Review.objects.filter(product=product, status=Review.Status.PUBLISHED)
-        count = reviews.count()
-        if count > 0:
-            avg = sum(r.rating for r in reviews) / count
-            product.rating = round(avg, 2)
-            product.reviews_count = count
-            product.save(update_fields=['rating', 'reviews_count'])
-        else:
-            product.rating = 0
-            product.reviews_count = 0
-            product.save(update_fields=['rating', 'reviews_count'])
+        ).select_related('user', 'product', 'order').order_by('-created_at')
 
     @extend_schema(
         tags=['Catalog / Reviews'],
         summary='Отзывы товара',
-        responses={200: ReviewSerializer(many=True)},
+        responses={200: ReviewListSerializer(many=True)},
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
+
+class ReviewCreateView(generics.CreateAPIView):
+    """POST /catalog/reviews/"""
+    serializer_class = ReviewCreateSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Review.objects.select_related('product', 'user', 'order')
 
     @extend_schema(
         tags=['Catalog / Reviews'],

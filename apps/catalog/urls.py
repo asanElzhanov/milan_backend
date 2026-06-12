@@ -17,7 +17,8 @@ urlpatterns = [
     path('products/', views.ProductListView.as_view(), name='product-list'),
     path('products/<slug:slug>/', views.ProductDetailView.as_view(), name='product-detail'),
     path('products/<slug:slug>/similar/', views.ProductSimilarView.as_view(), name='product-similar'),
-    path('products/<slug:slug>/reviews/', views.ReviewListCreateView.as_view(), name='product-reviews'),
+    path('products/<slug:slug>/reviews/', views.ProductReviewListView.as_view(), name='product-reviews'),
+    path('reviews/', views.ReviewCreateView.as_view(), name='review-create'),
 
     path('banners/', views.BannerListView.as_view(), name='banners'),
     path('promo/check/', views.PromoCheckView.as_view(), name='promo-check'),
