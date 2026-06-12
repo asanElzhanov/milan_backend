@@ -3,12 +3,23 @@ from decimal import Decimal
 import uuid
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import F
+from django.utils import timezone
 
 from apps.catalog.models import ProductVariant
 from apps.catalog.services import NotEnoughStockError as StockNotEnoughStockError
 from apps.catalog.services import StockService
 
-from .models import Cart, CartItem, DeliveryMethod, Order, OrderItem, OrderStatusHistory
+from .models import (
+    Cart,
+    CartItem,
+    DeliveryMethod,
+    Order,
+    OrderItem,
+    OrderStatusHistory,
+    PromoCode,
+    PromoCodeUsage,
+)
 
 
 class CartError(ValidationError):
@@ -44,6 +55,34 @@ class InactiveProductError(CheckoutError):
 
 
 class InvalidCheckoutDataError(CheckoutError):
+    pass
+
+
+class PromoCodeError(CheckoutError):
+    pass
+
+
+class PromoCodeNotFoundError(PromoCodeError):
+    pass
+
+
+class PromoCodeInactiveError(PromoCodeError):
+    pass
+
+
+class PromoCodeExpiredError(PromoCodeError):
+    pass
+
+
+class PromoCodeNotStartedError(PromoCodeError):
+    pass
+
+
+class PromoCodeUsageLimitExceededError(PromoCodeError):
+    pass
+
+
+class PromoCodeMinAmountError(PromoCodeError):
     pass
 
 
@@ -361,6 +400,111 @@ class CartService:
             raise NotEnoughStockError('Недостаточно товара на складе.')
 
 
+class PromoCodeService:
+    money_quant = Decimal('0.01')
+
+    @classmethod
+    def normalize_code(cls, code):
+        return str(code or '').strip().upper()
+
+    @classmethod
+    def get_active_promo(cls, code, *, for_update=False):
+        normalized_code = cls.normalize_code(code)
+        if not normalized_code:
+            raise PromoCodeNotFoundError('Промокод не найден.')
+
+        queryset = PromoCode.objects.all()
+        if for_update:
+            queryset = queryset.select_for_update()
+        try:
+            promo_code = queryset.get(code=normalized_code)
+        except PromoCode.DoesNotExist as exc:
+            raise PromoCodeNotFoundError('Промокод не найден.') from exc
+
+        if not promo_code.is_active:
+            raise PromoCodeInactiveError('Промокод неактивен.')
+        return promo_code
+
+    @classmethod
+    def validate_promo(cls, promo_code, subtotal, user=None):
+        subtotal = cls._normalize_money(subtotal)
+        now = timezone.now()
+
+        if not promo_code.is_active:
+            raise PromoCodeInactiveError('Промокод неактивен.')
+        if promo_code.valid_from and now < promo_code.valid_from:
+            raise PromoCodeNotStartedError('Промокод еще не начал действовать.')
+        if promo_code.valid_until and now > promo_code.valid_until:
+            raise PromoCodeExpiredError('Срок действия промокода истек.')
+        if promo_code.min_order_amount is not None and subtotal < promo_code.min_order_amount:
+            raise PromoCodeMinAmountError('Минимальная сумма заказа для промокода не достигнута.')
+        if promo_code.usage_limit is not None and promo_code.used_count >= promo_code.usage_limit:
+            raise PromoCodeUsageLimitExceededError('Лимит использований промокода исчерпан.')
+        return promo_code
+
+    @classmethod
+    def calculate_discount(cls, promo_code, subtotal):
+        subtotal = cls._normalize_money(subtotal)
+        if subtotal <= Decimal('0.00'):
+            return Decimal('0.00')
+
+        if promo_code.discount_type == PromoCode.DiscountType.PERCENT:
+            discount = subtotal * promo_code.value / Decimal('100')
+        elif promo_code.discount_type == PromoCode.DiscountType.FIXED:
+            discount = promo_code.value
+        else:
+            raise PromoCodeError('Некорректный тип скидки.')
+
+        discount = min(discount, subtotal)
+        return discount.quantize(cls.money_quant)
+
+    @classmethod
+    def apply_to_cart(cls, cart, code, user=None):
+        promo_code = cls.get_active_promo(code)
+        totals = CartService.recalculate_cart(cart)
+        subtotal = cls._normalize_money(totals['subtotal'])
+        cls.validate_promo(promo_code, subtotal, user=user)
+        discount_amount = cls.calculate_discount(promo_code, subtotal)
+        return cls._build_result(promo_code, subtotal, discount_amount)
+
+    @classmethod
+    def apply_to_checkout(cls, cart, code, user=None, subtotal=None):
+        promo_code = cls.get_active_promo(code, for_update=True)
+        if subtotal is None:
+            totals = CartService.recalculate_cart(cart)
+            subtotal = totals['subtotal']
+        subtotal = cls._normalize_money(subtotal)
+        cls.validate_promo(promo_code, subtotal, user=user)
+        discount_amount = cls.calculate_discount(promo_code, subtotal)
+        return cls._build_result(promo_code, subtotal, discount_amount)
+
+    @classmethod
+    def mark_as_used(cls, promo_code, *, order, user=None):
+        PromoCode.objects.filter(pk=promo_code.pk).update(used_count=F('used_count') + 1)
+        promo_code.refresh_from_db(fields=['used_count'])
+        return PromoCodeUsage.objects.create(
+            promo_code=promo_code,
+            order=order,
+            user=user if user and user.is_authenticated else None,
+        )
+
+    @classmethod
+    def _build_result(cls, promo_code, subtotal, discount_amount):
+        total_after_discount = max(subtotal - discount_amount, Decimal('0.00'))
+        return {
+            'promo_code': promo_code,
+            'discount_amount': discount_amount,
+            'subtotal': subtotal,
+            'total_after_discount': total_after_discount.quantize(cls.money_quant),
+        }
+
+    @classmethod
+    def _normalize_money(cls, amount):
+        if isinstance(amount, float):
+            raise PromoCodeError('Сумма должна быть Decimal.')
+        return Decimal(amount).quantize(cls.money_quant)
+
+
 class CheckoutService:
     required_fields = (
         'customer_name',
@@ -381,6 +525,7 @@ class CheckoutService:
         city='',
         delivery_address='',
         delivery_method,
+        promo_code=None,
         comment='',
     ):
         checkout_data = {
@@ -431,7 +576,17 @@ class CheckoutService:
                 city=checkout_data.get('city') or '',
                 address=checkout_data.get('delivery_address') or '',
             )
-            total_amount = items_subtotal + delivery.delivery_price
+            promo_code_data = None
+            discount_amount = Decimal('0.00')
+            if promo_code:
+                promo_code_data = PromoCodeService.apply_to_checkout(
+                    cart=locked_cart,
+                    code=promo_code,
+                    user=user,
+                    subtotal=items_subtotal,
+                )
+                discount_amount = promo_code_data['discount_amount']
+            total_amount = items_subtotal - discount_amount + delivery.delivery_price
 
             order = Order.objects.create(
                 user=user if user and user.is_authenticated else None,
@@ -461,6 +616,13 @@ class CheckoutService:
                     quantity=item_data['quantity'],
                     user=user,
                     order=order,
+                )
+
+            if promo_code_data is not None:
+                PromoCodeService.mark_as_used(
+                    promo_code_data['promo_code'],
+                    order=order,
+                    user=user,
                 )
 
             locked_cart.items.select_for_update().delete()
