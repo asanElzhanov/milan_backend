@@ -6,8 +6,8 @@ from django.test import TestCase
 
 from apps.accounts.models import User
 from apps.catalog.models import Brand, Category, Color, Product, ProductVariant, Size, StockMovement
-from apps.orders.models import Cart, CartItem, Order, OrderItem, OrderStatusHistory
-from apps.orders.services import CheckoutService, EmptyCartError, NotEnoughStockError
+from apps.orders.models import Cart, CartItem, DeliveryMethod, Order, OrderItem, OrderStatusHistory
+from apps.orders.services import CheckoutService, EmptyCartError, InvalidCheckoutDataError, NotEnoughStockError
 
 
 class CheckoutServiceTests(TestCase):
@@ -38,6 +38,10 @@ class CheckoutServiceTests(TestCase):
             stock_quantity=3,
         )
         self.user = User.objects.create_user(email='checkout@example.com')
+        self.courier_delivery = DeliveryMethod.objects.get(code='courier')
+        self.courier_delivery.price_type = DeliveryMethod.PriceType.FIXED
+        self.courier_delivery.base_price = Decimal('1000.00')
+        self.courier_delivery.save(update_fields=['price_type', 'base_price', 'updated_at'])
 
     def create_cart(self):
         cart = Cart.objects.create(user=self.user, token=None)
@@ -66,7 +70,12 @@ class CheckoutServiceTests(TestCase):
         self.assertEqual(order.user, self.user)
         self.assertTrue(order.order_number.startswith('ORD-'))
         self.assertEqual(order.customer_name, 'Customer Name')
-        self.assertEqual(order.total_amount, Decimal('340.00'))
+        self.assertEqual(order.delivery_method_ref, self.courier_delivery)
+        self.assertEqual(order.delivery_method, 'courier')
+        self.assertEqual(order.delivery_method_name, 'Курьерская доставка')
+        self.assertEqual(order.delivery_price, Decimal('1000.00'))
+        self.assertTrue(order.delivery_price_is_final)
+        self.assertEqual(order.total_amount, Decimal('1340.00'))
         self.assertEqual(order.status, Order.Status.NEW)
         self.assertEqual(order.payment_status, Order.PaymentStatus.UNPAID)
 
@@ -99,6 +108,38 @@ class CheckoutServiceTests(TestCase):
         self.assertEqual(movements[0].operation_type, StockMovement.OperationType.SALE)
         self.assertEqual(movements[0].quantity, 2)
         self.assertIn(order.order_number, movements[0].comment)
+
+    def test_checkout_marks_manager_delivery_price_as_not_final(self):
+        delivery = DeliveryMethod.objects.get(code='kazakhstan_delivery')
+        delivery.price_type = DeliveryMethod.PriceType.MANAGER_CALCULATION
+        delivery.save(update_fields=['price_type', 'updated_at'])
+        cart = self.create_cart()
+
+        order = CheckoutService.checkout(
+            cart=cart,
+            user=self.user,
+            customer_name='Customer Name',
+            phone='+77011234567',
+            email='customer@example.com',
+            city='Almaty',
+            delivery_address='Abay 10',
+            delivery_method='kazakhstan_delivery',
+        )
+
+        self.assertEqual(order.delivery_method_ref, delivery)
+        self.assertEqual(order.delivery_price, Decimal('0.00'))
+        self.assertFalse(order.delivery_price_is_final)
+        self.assertEqual(order.total_amount, Decimal('340.00'))
+
+    def test_checkout_rejects_inactive_delivery_method(self):
+        self.courier_delivery.is_active = False
+        self.courier_delivery.save(update_fields=['is_active', 'updated_at'])
+        cart = self.create_cart()
+
+        with self.assertRaises(InvalidCheckoutDataError):
+            self.checkout(cart)
+
+        self.assertFalse(Order.objects.exists())
 
     def test_checkout_creates_initial_status_history(self):
         cart = self.create_cart()

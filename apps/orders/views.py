@@ -6,13 +6,14 @@ from rest_framework.views import APIView
 
 from apps.catalog.models import ProductImage
 
-from .models import Order
+from .models import DeliveryMethod, Order
 from .serializers import (
     CartItemAddSerializer,
     CartItemQuantityUpdateSerializer,
     CartMergeSerializer,
     CartSerializer,
     CheckoutSerializer,
+    DeliveryMethodSerializer,
     OrderDetailSerializer,
     OrderListSerializer,
     OrderCreateSerializer,
@@ -42,6 +43,17 @@ def get_cart_token(request):
     data = getattr(request, 'data', None)
     if isinstance(data, dict):
         return data.get('cart_token')
+    return None
+
+
+def parse_bool(value):
+    if value is None:
+        return None
+    value = value.lower()
+    if value in {'1', 'true', 'yes', 'y'}:
+        return True
+    if value in {'0', 'false', 'no', 'n'}:
+        return False
     return None
 
 
@@ -85,7 +97,12 @@ def cart_error_response(exc):
 
 
 def load_order_for_response(order):
-    return Order.objects.prefetch_related('items', 'status_history').get(pk=order.pk)
+    return (
+        Order.objects
+        .select_related('delivery_method_ref')
+        .prefetch_related('items', 'status_history')
+        .get(pk=order.pk)
+    )
 
 
 def checkout_response(request):
@@ -272,6 +289,30 @@ class CartMergeView(APIView):
 
 # ── Заказы ────────────────────────────────────────────────────────────────────
 
+class DeliveryMethodListView(generics.ListAPIView):
+    """GET /orders/delivery-methods/?active=true"""
+    serializer_class = DeliveryMethodSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def get_queryset(self):
+        queryset = DeliveryMethod.objects.all()
+        active = parse_bool(self.request.query_params.get('active'))
+        if active is True:
+            queryset = queryset.filter(is_active=True)
+        elif active is False:
+            queryset = queryset.filter(is_active=False)
+        return queryset.order_by('sort_order', 'name')
+
+    @extend_schema(
+        tags=['Orders / Delivery Methods'],
+        summary='Список способов доставки',
+        parameters=[OpenApiParameter('active', OpenApiTypes.BOOL, OpenApiParameter.QUERY)],
+        responses={200: DeliveryMethodSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
 class CheckoutView(APIView):
     """POST /orders/checkout/ — оформить заказ"""
     permission_classes = [permissions.AllowAny]
@@ -297,6 +338,7 @@ class OrderListView(generics.ListAPIView):
             return Order.objects.none()
         queryset = (
             Order.objects.filter(user=self.request.user)
+            .select_related('delivery_method_ref')
             .annotate(items_count=Count('items'))
             .order_by('-created_at')
         )
@@ -347,7 +389,7 @@ class OrderDetailView(generics.RetrieveAPIView):
             return Order.objects.none()
         return (
             Order.objects.filter(user=self.request.user)
-            .select_related('user')
+            .select_related('user', 'delivery_method_ref')
             .prefetch_related('items', 'status_history')
         )
 

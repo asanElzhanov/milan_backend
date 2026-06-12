@@ -46,6 +46,12 @@ KaspiWebhookRequestSerializer = inline_serializer(
 )
 
 
+def delivery_price_not_final_response(order):
+    if order.delivery_price_is_final:
+        return None
+    return Response({'detail': 'Стоимость доставки уточняется менеджером'}, status=400)
+
+
 class StripeCreateIntentView(APIView):
     """
     POST /payments/stripe/create-intent/
@@ -73,6 +79,9 @@ class StripeCreateIntentView(APIView):
 
         if order.status not in (Order.Status.NEW, Order.Status.WAITING_PAYMENT):
             return Response({'detail': 'Заказ уже оплачен или отменён'}, status=400)
+        response = delivery_price_not_final_response(order)
+        if response is not None:
+            return response
 
         intent = stripe.PaymentIntent.create(
             amount=int(order.total_amount * 100),  # в тиынах / центах
@@ -166,6 +175,9 @@ class KaspiCreateView(APIView):
             order = Order.objects.get(order_number=order_number)
         except Order.DoesNotExist:
             return Response({'detail': 'Заказ не найден'}, status=404)
+        response = delivery_price_not_final_response(order)
+        if response is not None:
+            return response
 
         # Kaspi Pay integration URL (упрощённо — реальная интеграция по документации Kaspi)
         merchant_id = settings.KASPI_MERCHANT_ID

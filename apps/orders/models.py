@@ -7,6 +7,7 @@ from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.utils.crypto import get_random_string
+from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 
 
@@ -32,6 +33,7 @@ class Order(models.Model):
     class DeliveryMethod(models.TextChoices):
         COURIER = 'courier', _('Курьер')
         PICKUP = 'pickup', _('Самовывоз')
+        KAZAKHSTAN_DELIVERY = 'kazakhstan_delivery', _('Доставка по Казахстану')
         POST = 'post', _('Почта')
         OTHER = 'other', _('Другое')
 
@@ -45,7 +47,24 @@ class Order(models.Model):
     email = models.EmailField(_('email'))
     city = models.CharField(_('город'), max_length=100, blank=True)
     delivery_address = models.TextField(blank=True)
-    delivery_method = models.CharField(max_length=20, choices=DeliveryMethod.choices)
+    delivery_method = models.CharField(max_length=50, choices=DeliveryMethod.choices)
+    delivery_method_ref = models.ForeignKey(
+        'DeliveryMethod',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='orders',
+        verbose_name=_('способ доставки'),
+    )
+    delivery_method_name = models.CharField(_('название способа доставки'), max_length=120, blank=True)
+    delivery_price = models.DecimalField(
+        _('стоимость доставки'),
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00'))],
+    )
+    delivery_price_is_final = models.BooleanField(_('стоимость доставки финальная'), default=True)
     total_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -73,11 +92,16 @@ class Order(models.Model):
             models.Index(fields=['created_at']),
             models.Index(fields=['phone']),
             models.Index(fields=['email']),
+            models.Index(fields=['delivery_method_ref'], name='orders_orde_deliver_186dd8_idx'),
         ]
         constraints = [
             models.CheckConstraint(
                 check=Q(total_amount__gte=0),
                 name='order_total_amount_non_negative',
+            ),
+            models.CheckConstraint(
+                check=Q(delivery_price__gte=0),
+                name='order_delivery_price_non_negative',
             ),
         ]
 
@@ -95,6 +119,92 @@ class Order(models.Model):
             order_number = 'ORD-' + get_random_string(8, '0123456789ABCDEF')
             if not cls.objects.filter(order_number=order_number).exists():
                 return order_number
+
+
+class DeliveryMethod(models.Model):
+    class DeliveryType(models.TextChoices):
+        COURIER = 'courier', _('Курьер')
+        PICKUP = 'pickup', _('Самовывоз')
+        KAZAKHSTAN_DELIVERY = 'kazakhstan_delivery', _('Доставка по Казахстану')
+
+    class PriceType(models.TextChoices):
+        FIXED = 'fixed', _('Фиксированная')
+        MANAGER_CALCULATION = 'manager_calculation', _('Уточняется менеджером')
+        FREE = 'free', _('Бесплатная')
+
+    name = models.CharField(_('название'), max_length=120)
+    code = models.CharField(_('код'), max_length=50, unique=True)
+    slug = models.SlugField(_('slug'), max_length=80, unique=True)
+    delivery_type = models.CharField(
+        _('тип доставки'),
+        max_length=32,
+        choices=DeliveryType.choices,
+    )
+    description = models.TextField(_('описание'), blank=True)
+    is_active = models.BooleanField(_('активен'), default=True)
+    base_price = models.DecimalField(
+        _('базовая цена'),
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        validators=[MinValueValidator(Decimal('0.00'))],
+    )
+    price_type = models.CharField(
+        _('тип цены'),
+        max_length=32,
+        choices=PriceType.choices,
+        default=PriceType.FIXED,
+    )
+    free_from_amount = models.DecimalField(
+        _('бесплатно от суммы'),
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+    )
+    sort_order = models.PositiveSmallIntegerField(_('порядок'), default=0)
+    created_at = models.DateTimeField(_('создан'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('обновлен'), auto_now=True)
+
+    class Meta:
+        verbose_name = _('способ доставки')
+        verbose_name_plural = _('способы доставки')
+        ordering = ['sort_order', 'name']
+        indexes = [
+            models.Index(fields=['code'], name='orders_deli_code_e26177_idx'),
+            models.Index(fields=['slug'], name='orders_deli_slug_73500e_idx'),
+            models.Index(fields=['is_active'], name='orders_deli_is_acti_05610c_idx'),
+            models.Index(fields=['delivery_type'], name='orders_deli_deliver_d26c22_idx'),
+            models.Index(fields=['sort_order'], name='orders_deli_sort_or_0b8728_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(base_price__gte=0),
+                name='delivery_method_base_price_non_negative',
+            ),
+            models.CheckConstraint(
+                check=Q(free_from_amount__isnull=True) | Q(free_from_amount__gte=0),
+                name='delivery_method_free_from_amount_non_negative',
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name, allow_unicode=True)
+        super().save(*args, **kwargs)
+
+    def calculate_price(self, amount):
+        if self.price_type == self.PriceType.FREE:
+            return Decimal('0.00'), True
+        if self.price_type == self.PriceType.MANAGER_CALCULATION:
+            return Decimal('0.00'), False
+        if self.free_from_amount is not None and amount >= self.free_from_amount:
+            return Decimal('0.00'), True
+        return self.base_price, True
 
 
 class OrderItem(models.Model):

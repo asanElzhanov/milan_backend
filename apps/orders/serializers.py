@@ -1,7 +1,17 @@
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
-from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem
+from .models import DeliveryMethod, Order, OrderItem, OrderStatusHistory, Cart, CartItem
 from .services import CartService, CheckoutService
+
+
+class DeliveryMethodSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeliveryMethod
+        fields = (
+            'id', 'name', 'code', 'slug', 'delivery_type',
+            'description', 'is_active', 'base_price', 'price_type',
+            'free_from_amount', 'sort_order',
+        )
 
 
 class CartItemSerializer(serializers.ModelSerializer):
@@ -131,7 +141,8 @@ class OrderListSerializer(serializers.ModelSerializer):
         model = Order
         fields = (
             'order_number', 'status', 'payment_status',
-            'total_amount', 'items_count', 'created_at',
+            'delivery_method', 'delivery_method_name', 'delivery_price',
+            'delivery_price_is_final', 'total_amount', 'items_count', 'created_at',
         )
 
 
@@ -144,6 +155,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         fields = (
             'order_number', 'customer_name', 'phone', 'email',
             'city', 'delivery_address', 'delivery_method',
+            'delivery_method_name', 'delivery_price', 'delivery_price_is_final',
             'total_amount', 'status', 'payment_status', 'comment',
             'items', 'status_history',
             'created_at',
@@ -162,7 +174,7 @@ class CheckoutSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=30)
     comment = serializers.CharField(required=False, allow_blank=True)
 
-    delivery_method = serializers.ChoiceField(choices=Order.DeliveryMethod.choices)
+    delivery_method = serializers.CharField(max_length=50)
     delivery_address = serializers.CharField(required=False, allow_blank=True)
     city = serializers.CharField(required=False, allow_blank=True)
     delivery_city = serializers.CharField(required=False, allow_blank=True, write_only=True)

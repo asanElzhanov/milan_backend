@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.core.exceptions import ValidationError
 
-from .models import Cart, Order, OrderItem, OrderStatusHistory
+from .models import Cart, DeliveryMethod, Order, OrderItem, OrderStatusHistory
 from .services import OrderStatusService
 
 
@@ -43,21 +43,25 @@ class OrderStatusHistoryInline(admin.TabularInline):
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
         'order_number', 'user', 'customer_name', 'phone', 'city',
-        'total_amount', 'status', 'payment_status', 'delivery_method', 'created_at',
+        'total_amount', 'delivery_price', 'status', 'payment_status',
+        'delivery_method', 'created_at',
     )
     search_fields = (
         'order_number', 'customer_name', 'phone', 'email',
         'items__sku', 'items__product_name',
     )
-    list_filter = ('status', 'payment_status', 'delivery_method', 'city', 'created_at')
-    readonly_fields = ('order_number', 'total_amount', 'created_at', 'updated_at')
+    list_filter = ('status', 'payment_status', 'delivery_method_ref', 'delivery_method', 'city', 'created_at')
+    readonly_fields = (
+        'order_number', 'delivery_method_name', 'delivery_price',
+        'delivery_price_is_final', 'total_amount', 'created_at', 'updated_at',
+    )
     ordering = ('-created_at',)
     inlines = [OrderItemInline, OrderStatusHistoryInline]
 
     def get_queryset(self, request):
         return (
             super().get_queryset(request)
-            .select_related('user')
+            .select_related('user', 'delivery_method_ref')
             .prefetch_related('items', 'status_history')
         )
 
@@ -149,3 +153,17 @@ class OrderStatusHistoryAdmin(admin.ModelAdmin):
 
 
 admin.site.register(Cart)
+
+
+@admin.register(DeliveryMethod)
+class DeliveryMethodAdmin(admin.ModelAdmin):
+    list_display = (
+        'name', 'code', 'slug', 'delivery_type', 'price_type',
+        'base_price', 'free_from_amount', 'is_active', 'sort_order',
+    )
+    list_filter = ('is_active', 'delivery_type', 'price_type')
+    search_fields = ('name', 'code', 'slug')
+    list_editable = ('price_type', 'base_price', 'free_from_amount', 'is_active', 'sort_order')
+    ordering = ('sort_order', 'name')
+    prepopulated_fields = {'slug': ('name',)}
+    readonly_fields = ('created_at', 'updated_at')

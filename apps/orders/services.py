@@ -8,7 +8,7 @@ from apps.catalog.models import ProductVariant
 from apps.catalog.services import NotEnoughStockError as StockNotEnoughStockError
 from apps.catalog.services import StockService
 
-from .models import Cart, CartItem, Order, OrderItem, OrderStatusHistory
+from .models import Cart, CartItem, DeliveryMethod, Order, OrderItem, OrderStatusHistory
 
 
 class CartError(ValidationError):
@@ -344,7 +344,7 @@ class CheckoutService:
 
             variants_by_id = cls._get_locked_variants(items)
             order_items_data = []
-            total_amount = Decimal('0.00')
+            items_subtotal = Decimal('0.00')
 
             for item in items:
                 variant = variants_by_id[item.variant_id]
@@ -353,7 +353,7 @@ class CheckoutService:
 
                 unit_price = cls.get_effective_price(variant)
                 total_price = unit_price * item.quantity
-                total_amount += total_price
+                items_subtotal += total_price
                 order_items_data.append({
                     'variant': variant,
                     'product_name': variant.product.name,
@@ -366,6 +366,10 @@ class CheckoutService:
                     'total_price': total_price,
                 })
 
+            delivery_method = cls._get_delivery_method(checkout_data['delivery_method'])
+            delivery_price, delivery_price_is_final = delivery_method.calculate_price(items_subtotal)
+            total_amount = items_subtotal + delivery_price
+
             order = Order.objects.create(
                 user=user if user and user.is_authenticated else None,
                 customer_name=checkout_data['customer_name'],
@@ -373,7 +377,11 @@ class CheckoutService:
                 email=checkout_data['email'],
                 city=checkout_data.get('city') or '',
                 delivery_address=checkout_data.get('delivery_address') or '',
-                delivery_method=checkout_data['delivery_method'],
+                delivery_method=delivery_method.code,
+                delivery_method_ref=delivery_method,
+                delivery_method_name=delivery_method.name,
+                delivery_price=delivery_price,
+                delivery_price_is_final=delivery_price_is_final,
                 total_amount=total_amount,
                 status=Order.Status.NEW,
                 payment_status=Order.PaymentStatus.UNPAID,
@@ -407,9 +415,14 @@ class CheckoutService:
         for field in cls.required_fields:
             if not data.get(field):
                 raise InvalidCheckoutDataError(f'Поле {field} обязательно.')
-        valid_delivery_methods = {choice for choice, _ in Order.DeliveryMethod.choices}
-        if data['delivery_method'] not in valid_delivery_methods:
-            raise InvalidCheckoutDataError('Некорректный способ доставки.')
+        cls._get_delivery_method(data['delivery_method'])
+
+    @staticmethod
+    def _get_delivery_method(delivery_method):
+        try:
+            return DeliveryMethod.objects.get(code=delivery_method, is_active=True)
+        except DeliveryMethod.DoesNotExist as exc:
+            raise InvalidCheckoutDataError('Некорректный способ доставки.') from exc
 
     @staticmethod
     def _get_locked_items(cart):
