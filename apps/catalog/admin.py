@@ -284,6 +284,7 @@ class ReviewAdmin(admin.ModelAdmin):
         for review in queryset:
             ReviewModerationService.hide_review(review, request.user)
 
+
 @admin.register(Category)
 class CategoryAdmin(MPTTModelAdmin):
     list_display = ('name', 'slug', 'parent', 'is_active', 'sort_order')

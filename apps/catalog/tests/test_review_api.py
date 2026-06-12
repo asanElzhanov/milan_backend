@@ -1,11 +1,12 @@
 from decimal import Decimal
+from unittest.mock import patch
 
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import User
 from apps.catalog.models import Brand, Category, Product, ProductVariant, Review
-from apps.catalog.services import ReviewModerationService
+from apps.catalog.services import ProductReviewService, ReviewModerationService
 from apps.orders.models import Order, OrderItem
 
 
@@ -115,6 +116,26 @@ class ReviewApiTests(APITestCase):
         self.assertEqual(review.product, self.product)
         self.assertEqual(review.order, order)
         self.assertTrue(review.is_verified_purchase)
+
+    def test_create_review_api_uses_review_service(self):
+        order = self.create_order()
+        self.add_item(order)
+        self.client.force_authenticate(user=self.user)
+
+        with patch.object(
+            ProductReviewService,
+            'create_review',
+            wraps=ProductReviewService.create_review,
+        ) as create_review:
+            response = self.client.post(self.create_url(), {
+                'product_id': self.product.id,
+                'order_id': order.id,
+                'rating': 5,
+                'text': 'Created through service',
+            })
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        create_review.assert_called_once()
 
     def test_anonymous_user_cannot_create_review(self):
         order = self.create_order()

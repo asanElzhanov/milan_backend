@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Avg
+from django.db.models import Avg, Count
 from django.utils import timezone
 
 from apps.accounts.models import User
@@ -41,12 +41,12 @@ class ReviewRatingService:
         stats = Review.objects.filter(
             product=product,
             status=Review.Status.PUBLISHED,
-        ).aggregate(average_rating=Avg('rating'))
-        reviews_count = Review.objects.filter(
-            product=product,
-            status=Review.Status.PUBLISHED,
-        ).count()
+        ).aggregate(
+            average_rating=Avg('rating'),
+            reviews_count=Count('id'),
+        )
         average_rating = stats['average_rating']
+        reviews_count = stats['reviews_count']
         product.rating = cls._normalize_rating(average_rating)
         product.reviews_count = reviews_count
         product.save(update_fields=['rating', 'reviews_count', 'updated_at'])

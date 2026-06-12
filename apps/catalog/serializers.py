@@ -449,7 +449,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             context=self.context,
         ).data
 
-    @extend_schema_field(ReviewSerializer(many=True))
+    @extend_schema_field(ReviewListSerializer(many=True))
     def get_reviews(self, obj):
         reviews = getattr(obj, 'approved_reviews', None)
         if reviews is None:
@@ -457,7 +457,6 @@ class ProductDetailSerializer(serializers.ModelSerializer):
                 obj.reviews
                 .filter(status=Review.Status.PUBLISHED)
                 .select_related('user')
-                .prefetch_related('images')
             )
         return ReviewListSerializer(list(reviews)[:5], many=True).data
 

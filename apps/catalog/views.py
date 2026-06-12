@@ -319,7 +319,6 @@ class ProductDetailView(generics.RetrieveAPIView):
                 'reviews',
                 queryset=Review.objects.filter(status=Review.Status.PUBLISHED)
                 .select_related('user')
-                .prefetch_related('images')
                 .order_by('-created_at'),
                 to_attr='approved_reviews',
             ),
