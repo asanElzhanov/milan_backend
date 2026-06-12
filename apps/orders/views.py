@@ -11,6 +11,7 @@ from .serializers import (
     CartItemAddSerializer,
     CartItemQuantityUpdateSerializer,
     CartMergeSerializer,
+    CartPromoCodeApplySerializer,
     CartSerializer,
     CheckoutSerializer,
     DeliveryMethodSerializer,
@@ -19,7 +20,7 @@ from .serializers import (
     OrderCreateSerializer,
     OrderSerializer,
 )
-from .services import CartError, CartNotFoundError, CartService, CheckoutError
+from .services import CartError, CartNotFoundError, CartService, CheckoutError, PromoCodeError
 from apps.notifications.tasks import send_order_confirmation_email
 
 
@@ -61,6 +62,7 @@ def get_current_cart(request, *, allow_create=False):
 def load_cart_for_response(cart):
     return (
         cart.__class__.objects
+        .select_related('promo_code')
         .prefetch_related(
             Prefetch(
                 'items',
@@ -250,6 +252,57 @@ class CartClearView(APIView):
         except CartError as exc:
             return cart_error_response(exc)
         return Response(CartSerializer(cart, context={'request': request}).data)
+
+
+class CartPromoCodeApplyView(APIView):
+    """POST /orders/cart/promo-code/apply/"""
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        tags=['Cart'],
+        summary='Применить промокод к корзине',
+        parameters=[CartTokenHeader],
+        request=CartPromoCodeApplySerializer,
+        responses={200: CartSerializer, 400: OpenApiResponse(description='Промокод не применён')},
+    )
+    def post(self, request):
+        serializer = CartPromoCodeApplySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            cart = get_current_cart(request)
+            cart = CartService.apply_promo_code(
+                cart=cart,
+                code=serializer.validated_data['code'],
+                user=request.user if request.user.is_authenticated else None,
+            )
+            cart = load_cart_for_response(cart)
+        except (CartError, PromoCodeError) as exc:
+            return cart_error_response(exc)
+        data = CartSerializer(cart, context={'request': request}).data
+        data['message'] = 'Промокод применён.'
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class CartPromoCodeView(APIView):
+    """DELETE /orders/cart/promo-code/"""
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        tags=['Cart'],
+        summary='Удалить промокод из корзины',
+        parameters=[CartTokenHeader],
+        responses={200: CartSerializer, 400: OrderDetailResponseSerializer},
+    )
+    def delete(self, request):
+        try:
+            cart = get_current_cart(request)
+            cart = CartService.remove_promo_code(cart)
+            cart = load_cart_for_response(cart)
+        except CartError as exc:
+            return cart_error_response(exc)
+        data = CartSerializer(cart, context={'request': request}).data
+        data['message'] = 'Промокод удалён.'
+        return Response(data)
 
 
 class CartMergeView(APIView):

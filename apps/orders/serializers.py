@@ -70,13 +70,17 @@ class CartSerializer(serializers.ModelSerializer):
     items_count = serializers.SerializerMethodField()
     total_quantity = serializers.SerializerMethodField()
     subtotal = serializers.SerializerMethodField()
+    promo_code = serializers.SerializerMethodField()
+    discount_amount = serializers.SerializerMethodField()
+    total_after_discount = serializers.SerializerMethodField()
     total = serializers.SerializerMethodField()
 
     class Meta:
         model = Cart
         fields = (
             'cart_token', 'items', 'items_count', 'total_quantity',
-            'subtotal', 'total',
+            'subtotal', 'promo_code', 'discount_amount',
+            'total_after_discount', 'total',
         )
 
     @extend_schema_field(OpenApiTypes.STR)
@@ -100,6 +104,19 @@ class CartSerializer(serializers.ModelSerializer):
     def get_subtotal(self, obj):
         return str(self._totals(obj)['subtotal'])
 
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_promo_code(self, obj):
+        promo_code = self._totals(obj)['promo_code']
+        return promo_code.code if promo_code else None
+
+    @extend_schema_field(OpenApiTypes.DECIMAL)
+    def get_discount_amount(self, obj):
+        return str(self._totals(obj)['discount_amount'])
+
+    @extend_schema_field(OpenApiTypes.DECIMAL)
+    def get_total_after_discount(self, obj):
+        return str(self._totals(obj)['total_after_discount'])
+
     @extend_schema_field(OpenApiTypes.DECIMAL)
     def get_total(self, obj):
         return str(self._totals(obj)['total'])
@@ -116,6 +133,11 @@ class CartItemQuantityUpdateSerializer(serializers.Serializer):
 
 class CartMergeSerializer(serializers.Serializer):
     guest_cart_token = serializers.UUIDField()
+
+
+class CartPromoCodeApplySerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=50)
+    cart_token = serializers.UUIDField(required=False, write_only=True)
 
 
 class OrderItemSerializer(serializers.ModelSerializer):

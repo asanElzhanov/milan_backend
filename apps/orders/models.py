@@ -461,6 +461,14 @@ class Cart(models.Model):
         default=uuid.uuid4,
     )
     is_active = models.BooleanField(_('активна'), default=True)
+    promo_code = models.ForeignKey(
+        PromoCode,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='carts',
+        verbose_name=_('промокод'),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -471,6 +479,7 @@ class Cart(models.Model):
             models.Index(fields=['user']),
             models.Index(fields=['token']),
             models.Index(fields=['is_active']),
+            models.Index(fields=['promo_code']),
         ]
         constraints = [
             models.UniqueConstraint(

@@ -247,6 +247,8 @@ class CartService:
         with transaction.atomic():
             cart = cls._lock_cart(cart)
             cart.items.select_for_update().delete()
+            cart.promo_code = None
+            cart.save(update_fields=['promo_code', 'updated_at'])
             return cart
 
     @classmethod
@@ -265,12 +267,47 @@ class CartService:
             for item in items
         )
         subtotal = subtotal or Decimal('0.00')
+        promo_code = None
+        discount_amount = Decimal('0.00')
+        total = subtotal
+        if cart.promo_code_id and subtotal > Decimal('0.00'):
+            try:
+                promo_code = cart.promo_code
+                PromoCodeService.validate_promo(promo_code, subtotal, user=cart.user)
+                discount_amount = PromoCodeService.calculate_discount(promo_code, subtotal)
+                total = max(subtotal - discount_amount, Decimal('0.00'))
+            except PromoCodeError:
+                promo_code = None
+                discount_amount = Decimal('0.00')
+                total = subtotal
         return {
             'items_count': len(items),
             'total_quantity': total_quantity,
             'subtotal': subtotal,
-            'total': subtotal,
+            'promo_code': promo_code,
+            'discount_amount': discount_amount,
+            'total_after_discount': total,
+            'total': total,
         }
+
+    @classmethod
+    def apply_promo_code(cls, cart, code, user=None):
+        with transaction.atomic():
+            cart = cls._lock_cart(cart)
+            if not cart.items.exists():
+                raise CartError('Корзина пуста.')
+            result = PromoCodeService.apply_to_cart(cart, code, user=user)
+            cart.promo_code = result['promo_code']
+            cart.save(update_fields=['promo_code', 'updated_at'])
+            return cart
+
+    @classmethod
+    def remove_promo_code(cls, cart):
+        with transaction.atomic():
+            cart = cls._lock_cart(cart)
+            cart.promo_code = None
+            cart.save(update_fields=['promo_code', 'updated_at'])
+            return cart
 
     @classmethod
     def merge_guest_cart_to_user_cart(cls, guest_token, user):
@@ -578,10 +615,13 @@ class CheckoutService:
             )
             promo_code_data = None
             discount_amount = Decimal('0.00')
-            if promo_code:
+            effective_promo_code = promo_code or (
+                locked_cart.promo_code.code if locked_cart.promo_code_id else None
+            )
+            if effective_promo_code:
                 promo_code_data = PromoCodeService.apply_to_checkout(
                     cart=locked_cart,
-                    code=promo_code,
+                    code=effective_promo_code,
                     user=user,
                     subtotal=items_subtotal,
                 )
