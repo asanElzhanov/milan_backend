@@ -1,11 +1,16 @@
 from decimal import Decimal
 
+from django.contrib import admin
 from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import User
 from apps.catalog.models import Brand, Category, Product, ProductVariant, StockMovement
-from apps.orders.models import Cart, CartItem, Order, OrderItem, OrderStatusHistory
+from apps.orders.admin import PromoCodeAdmin, PromoCodeAdminForm, PromoCodeUsageAdmin
+from apps.orders.models import (
+    Cart, CartItem, Order, OrderItem, OrderStatusHistory,
+    PromoCode, PromoCodeUsage,
+)
 from apps.orders.services import CheckoutService
 
 
@@ -171,3 +176,136 @@ class OrderAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertTrue(OrderStatusHistory.objects.filter(pk=history.pk).exists())
+
+
+class PromoCodeAdminTests(TestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_superuser(
+            email='promo-admin@example.com',
+            password='secret123',
+        )
+        self.user = User.objects.create_user(email='promo-admin-customer@example.com')
+        self.client.force_login(self.admin_user)
+
+        category = Category.objects.create(name='Promo Admin Shoes', slug='promo-admin-shoes')
+        brand = Brand.objects.create(name='Promo Admin Nike', slug='promo-admin-nike')
+        product = Product.objects.create(
+            sku='SKU-PROMO-ADMIN',
+            name='Promo Admin Product',
+            slug='promo-admin-product',
+            category=category,
+            brand=brand,
+            price=Decimal('100.00'),
+        )
+        self.variant = ProductVariant.objects.create(
+            product=product,
+            sku='VAR-PROMO-ADMIN',
+            stock_quantity=5,
+        )
+
+    def create_order(self):
+        cart = Cart.objects.create(user=self.user, token=None)
+        CartItem.objects.create(cart=cart, variant=self.variant, quantity=1)
+        return CheckoutService.checkout(
+            cart=cart,
+            user=self.user,
+            customer_name='Promo Customer',
+            phone='+77011234567',
+            email='promo-customer@example.com',
+            city='Almaty',
+            delivery_address='Abay 10',
+            delivery_method=Order.DeliveryMethod.COURIER,
+        )
+
+    def test_promo_code_admin_changelist_opens_and_searches_by_code(self):
+        PromoCode.objects.create(
+            code='summer10',
+            discount_type=PromoCode.DiscountType.PERCENT,
+            value=Decimal('10.00'),
+        )
+
+        response = self.client.get(
+            reverse('admin:orders_promocode_changelist'),
+            {'q': 'SUMMER10'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'SUMMER10')
+        self.assertContains(response, 'без лимита')
+
+    def test_promo_code_admin_change_page_opens_with_usage_inline(self):
+        promo_code = PromoCode.objects.create(
+            code='ORDER10',
+            discount_type=PromoCode.DiscountType.PERCENT,
+            value=Decimal('10.00'),
+        )
+        order = self.create_order()
+        PromoCodeUsage.objects.create(promo_code=promo_code, order=order, user=self.user)
+
+        response = self.client.get(reverse('admin:orders_promocode_change', args=[promo_code.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, order.order_number)
+
+    def test_promo_code_admin_form_normalizes_code(self):
+        form = PromoCodeAdminForm(data={
+            'code': ' summer10 ',
+            'discount_type': PromoCode.DiscountType.PERCENT,
+            'value': '10.00',
+            'used_count': '0',
+            'is_active': 'on',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        promo_code = form.save()
+        self.assertEqual(promo_code.code, 'SUMMER10')
+
+    def test_promo_code_admin_form_rejects_invalid_percent(self):
+        form = PromoCodeAdminForm(data={
+            'code': 'TOO-MUCH',
+            'discount_type': PromoCode.DiscountType.PERCENT,
+            'value': '101.00',
+            'used_count': '0',
+            'is_active': 'on',
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('value', form.errors)
+
+    def test_promo_code_admin_form_rejects_invalid_date_range(self):
+        form = PromoCodeAdminForm(data={
+            'code': 'DATES',
+            'discount_type': PromoCode.DiscountType.FIXED,
+            'value': '100.00',
+            'used_count': '0',
+            'valid_from': '2026-06-12 12:00:00',
+            'valid_until': '2026-06-11 12:00:00',
+            'is_active': 'on',
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('valid_until', form.errors)
+
+    def test_promo_code_admin_used_count_is_readonly(self):
+        model_admin = PromoCodeAdmin(PromoCode, admin.site)
+
+        self.assertIn('used_count', model_admin.get_readonly_fields(request=None))
+
+    def test_promo_code_admin_remaining_uses_display(self):
+        model_admin = PromoCodeAdmin(PromoCode, admin.site)
+        promo_code = PromoCode.objects.create(
+            code='LIMITED',
+            discount_type=PromoCode.DiscountType.FIXED,
+            value=Decimal('100.00'),
+            usage_limit=5,
+            used_count=2,
+        )
+
+        self.assertEqual(model_admin.remaining_uses(promo_code), 3)
+
+    def test_promo_code_usage_admin_is_readonly(self):
+        model_admin = PromoCodeUsageAdmin(PromoCodeUsage, admin.site)
+
+        self.assertFalse(model_admin.has_add_permission(request=None))
+        self.assertFalse(model_admin.has_change_permission(request=None, obj=object()))
+        self.assertFalse(model_admin.has_delete_permission(request=None, obj=object()))

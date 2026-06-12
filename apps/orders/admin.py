@@ -1,3 +1,6 @@
+from decimal import Decimal
+
+from django import forms
 from django.contrib import admin
 from django.core.exceptions import ValidationError
 
@@ -160,16 +163,77 @@ class OrderStatusHistoryAdmin(admin.ModelAdmin):
 admin.site.register(Cart)
 
 
+class PromoCodeUsageInline(admin.TabularInline):
+    model = PromoCodeUsage
+    extra = 0
+    fields = ('order', 'user', 'created_at')
+    readonly_fields = fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class PromoCodeAdminForm(forms.ModelForm):
+    class Meta:
+        model = PromoCode
+        fields = '__all__'
+
+    def clean_code(self):
+        code = self.cleaned_data['code']
+        return code.strip().upper()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        discount_type = cleaned_data.get('discount_type')
+        value = cleaned_data.get('value')
+        valid_from = cleaned_data.get('valid_from')
+        valid_until = cleaned_data.get('valid_until')
+
+        if value is not None and value <= Decimal('0.00'):
+            self.add_error('value', 'Значение скидки должно быть больше нуля.')
+        if (
+            discount_type == PromoCode.DiscountType.PERCENT
+            and value is not None
+            and value > Decimal('100.00')
+        ):
+            self.add_error('value', 'Процентная скидка не может быть больше 100%.')
+        if (
+            discount_type == PromoCode.DiscountType.FIXED
+            and value is not None
+            and value <= Decimal('0.00')
+        ):
+            self.add_error('value', 'Фиксированная скидка должна быть больше нуля.')
+        if valid_from and valid_until and valid_until < valid_from:
+            self.add_error('valid_until', 'Дата окончания не может быть раньше даты начала.')
+        return cleaned_data
+
+
 @admin.register(PromoCode)
 class PromoCodeAdmin(admin.ModelAdmin):
+    form = PromoCodeAdminForm
     list_display = (
         'code', 'discount_type', 'value', 'min_order_amount',
-        'used_count', 'usage_limit', 'is_active', 'valid_from', 'valid_until',
+        'usage_limit', 'used_count', 'remaining_uses',
+        'valid_from', 'valid_until', 'is_active',
     )
     list_filter = ('is_active', 'discount_type', 'valid_from', 'valid_until')
     search_fields = ('code',)
-    readonly_fields = ('created_at', 'updated_at')
+    readonly_fields = ('used_count', 'remaining_uses', 'created_at', 'updated_at')
     ordering = ('-created_at',)
+    inlines = [PromoCodeUsageInline]
+
+    @admin.display(description='остаток использований')
+    def remaining_uses(self, obj):
+        if obj.usage_limit is None:
+            return 'без лимита'
+        return max(obj.usage_limit - obj.used_count, 0)
 
 
 @admin.register(PromoCodeUsage)
