@@ -1,7 +1,9 @@
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
-from .models import ProductVariant, StockMovement
+from apps.orders.models import Order
+
+from .models import ProductVariant, Review, StockMovement
 
 
 class InvalidStockQuantityError(ValidationError):
@@ -10,6 +12,103 @@ class InvalidStockQuantityError(ValidationError):
 
 class NotEnoughStockError(ValidationError):
     pass
+
+
+class ReviewNotAllowedError(ValidationError):
+    pass
+
+
+class DuplicateReviewError(ValidationError):
+    pass
+
+
+class InvalidReviewRatingError(ValidationError):
+    pass
+
+
+class ProductReviewService:
+    allowed_order_statuses = {
+        Order.Status.COMPLETED,
+        Order.Status.PAID,
+    }
+
+    @classmethod
+    def can_review_product(cls, user, product, order):
+        cls._validate_user(user)
+        cls._validate_order_owner(user, order)
+        cls._validate_order_status(order)
+        cls._validate_order_contains_product(order, product)
+        cls._validate_not_duplicate(user, product, order)
+        return True
+
+    @classmethod
+    def create_review(cls, *, user, product, order, rating, text=''):
+        rating = cls._validate_rating(rating)
+        with transaction.atomic():
+            cls.can_review_product(user, product, order)
+            try:
+                return Review.objects.create(
+                    product=product,
+                    user=user,
+                    order=order,
+                    rating=rating,
+                    text=text,
+                    status=Review.Status.PENDING,
+                    is_verified_purchase=True,
+                )
+            except IntegrityError as exc:
+                raise DuplicateReviewError(
+                    'Вы уже оставили отзыв на этот товар в рамках этого заказа.'
+                ) from exc
+
+    @staticmethod
+    def _validate_user(user):
+        if not user or not user.is_authenticated:
+            raise ReviewNotAllowedError('Войдите в аккаунт, чтобы оставить отзыв.')
+
+    @staticmethod
+    def _validate_order_owner(user, order):
+        if order.user_id is None:
+            raise ReviewNotAllowedError(
+                'Гостевой заказ нельзя использовать для отзыва через личный кабинет.'
+            )
+        if order.user_id != user.id:
+            raise ReviewNotAllowedError('Нельзя оставить отзыв по чужому заказу.')
+
+    @classmethod
+    def _validate_order_status(cls, order):
+        if order.status not in cls.allowed_order_statuses:
+            raise ReviewNotAllowedError(
+                'Отзыв можно оставить только после оплаты или завершения заказа.'
+            )
+
+    @staticmethod
+    def _validate_order_contains_product(order, product):
+        has_product = order.items.filter(variant__product=product).exists()
+        if not has_product:
+            raise ReviewNotAllowedError('В этом заказе нет выбранного товара.')
+
+    @staticmethod
+    def _validate_not_duplicate(user, product, order):
+        duplicate_exists = Review.objects.filter(
+            product=product,
+            user=user,
+            order=order,
+        ).exists()
+        if duplicate_exists:
+            raise DuplicateReviewError(
+                'Вы уже оставили отзыв на этот товар в рамках этого заказа.'
+            )
+
+    @staticmethod
+    def _validate_rating(rating):
+        try:
+            rating = int(rating)
+        except (TypeError, ValueError) as exc:
+            raise InvalidReviewRatingError('Оценка должна быть числом от 1 до 5.') from exc
+        if rating < 1 or rating > 5:
+            raise InvalidReviewRatingError('Оценка должна быть от 1 до 5.')
+        return rating
 
 
 class StockService:

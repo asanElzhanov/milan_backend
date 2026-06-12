@@ -6,6 +6,7 @@ from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
     ProductMedia, ProductVariant, Promo, Review, ReviewImage, Size, StockMovement,
 )
+from .services import ProductReviewService
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -201,17 +202,13 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
         request = self.context['request']
         product = self.context['product']
         order = attrs['order']
-        if Review.objects.filter(product=product, user=request.user, order=order).exists():
-            raise serializers.ValidationError(
-                'Вы уже оставили отзыв на этот товар в рамках этого заказа.'
-            )
+        ProductReviewService.can_review_product(request.user, product, order)
         return attrs
 
     def create(self, validated_data):
-        return Review.objects.create(
+        return ProductReviewService.create_review(
             user=self.context['request'].user,
             product=self.context['product'],
-            is_verified_purchase=True,
             **validated_data,
         )
 
