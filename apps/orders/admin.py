@@ -1,7 +1,10 @@
 from django.contrib import admin
 from django.core.exceptions import ValidationError
 
-from .models import Cart, DeliveryMethod, Order, OrderItem, OrderStatusHistory
+from .models import (
+    Cart, DeliveryMethod, Order, OrderItem, OrderStatusHistory,
+    PromoCode, PromoCodeUsage,
+)
 from .services import OrderStatusService
 
 
@@ -154,6 +157,41 @@ class OrderStatusHistoryAdmin(admin.ModelAdmin):
 
 
 admin.site.register(Cart)
+
+
+@admin.register(PromoCode)
+class PromoCodeAdmin(admin.ModelAdmin):
+    list_display = (
+        'code', 'discount_type', 'value', 'min_order_amount',
+        'used_count', 'usage_limit', 'is_active', 'valid_from', 'valid_until',
+    )
+    list_filter = ('is_active', 'discount_type', 'valid_from', 'valid_until')
+    search_fields = ('code',)
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('-created_at',)
+
+
+@admin.register(PromoCodeUsage)
+class PromoCodeUsageAdmin(admin.ModelAdmin):
+    list_display = ('promo_code', 'order', 'user', 'created_at')
+    list_filter = ('created_at', 'promo_code')
+    search_fields = ('promo_code__code', 'order__order_number', 'user__email')
+    readonly_fields = ('promo_code', 'order', 'user', 'created_at')
+    ordering = ('-created_at',)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('promo_code', 'order', 'user')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        if obj is None:
+            return super().has_change_permission(request, obj)
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(DeliveryMethod)

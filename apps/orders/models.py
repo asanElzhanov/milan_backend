@@ -137,6 +137,149 @@ class Order(models.Model):
                 return order_number
 
 
+class PromoCode(models.Model):
+    class DiscountType(models.TextChoices):
+        PERCENT = 'percent', _('Процент')
+        FIXED = 'fixed', _('Фиксированная сумма')
+
+    code = models.CharField(_('код'), max_length=50, unique=True)
+    discount_type = models.CharField(
+        _('тип скидки'),
+        max_length=10,
+        choices=DiscountType.choices,
+    )
+    value = models.DecimalField(
+        _('значение скидки'),
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+    min_order_amount = models.DecimalField(
+        _('минимальная сумма заказа'),
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+    )
+    usage_limit = models.PositiveIntegerField(_('лимит использований'), null=True, blank=True)
+    used_count = models.PositiveIntegerField(_('использовано'), default=0)
+    valid_from = models.DateTimeField(_('действует с'), null=True, blank=True)
+    valid_until = models.DateTimeField(_('действует до'), null=True, blank=True)
+    is_active = models.BooleanField(_('активен'), default=True)
+    created_at = models.DateTimeField(_('создан'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('обновлен'), auto_now=True)
+
+    class Meta:
+        verbose_name = _('промокод')
+        verbose_name_plural = _('промокоды')
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['code']),
+            models.Index(fields=['is_active']),
+            models.Index(fields=['valid_from']),
+            models.Index(fields=['valid_until']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(value__gt=Decimal('0.00')),
+                name='promo_code_value_positive',
+            ),
+            models.CheckConstraint(
+                check=Q(discount_type='fixed') | Q(value__lte=Decimal('100.00')),
+                name='promo_code_percent_value_lte_100',
+            ),
+            models.CheckConstraint(
+                check=Q(min_order_amount__isnull=True) | Q(min_order_amount__gte=Decimal('0.00')),
+                name='promo_code_min_order_non_negative',
+            ),
+            models.CheckConstraint(
+                check=Q(usage_limit__isnull=True) | Q(used_count__lte=models.F('usage_limit')),
+                name='promo_code_used_count_lte_limit',
+            ),
+            models.CheckConstraint(
+                check=(
+                    Q(valid_from__isnull=True)
+                    | Q(valid_until__isnull=True)
+                    | Q(valid_until__gte=models.F('valid_from'))
+                ),
+                name='promo_code_valid_until_gte_from',
+            ),
+        ]
+
+    def __str__(self):
+        return self.code
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.code:
+            self.code = self.code.strip().upper()
+        if self.value is not None and self.value <= Decimal('0.00'):
+            errors['value'] = _('Значение скидки должно быть больше нуля.')
+        if (
+            self.discount_type == self.DiscountType.PERCENT
+            and self.value is not None
+            and self.value > Decimal('100.00')
+        ):
+            errors['value'] = _('Процентная скидка не может быть больше 100%.')
+        if self.min_order_amount is not None and self.min_order_amount < Decimal('0.00'):
+            errors['min_order_amount'] = _('Минимальная сумма заказа не может быть отрицательной.')
+        if (
+            self.usage_limit is not None
+            and self.used_count is not None
+            and self.used_count > self.usage_limit
+        ):
+            errors['used_count'] = _('Количество использований не может превышать лимит.')
+        if self.valid_from and self.valid_until and self.valid_until < self.valid_from:
+            errors['valid_until'] = _('Дата окончания не может быть раньше даты начала.')
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.code:
+            self.code = self.code.strip().upper()
+        super().save(*args, **kwargs)
+
+
+class PromoCodeUsage(models.Model):
+    promo_code = models.ForeignKey(
+        PromoCode,
+        on_delete=models.PROTECT,
+        related_name='usages',
+        verbose_name=_('промокод'),
+    )
+    order = models.OneToOneField(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='promo_code_usage',
+        verbose_name=_('заказ'),
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='promo_code_usages',
+        verbose_name=_('пользователь'),
+    )
+    created_at = models.DateTimeField(_('создано'), auto_now_add=True)
+
+    class Meta:
+        verbose_name = _('использование промокода')
+        verbose_name_plural = _('использования промокодов')
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['promo_code']),
+            models.Index(fields=['order']),
+            models.Index(fields=['user']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.promo_code.code} — {self.order.order_number}'
+
+
 class DeliveryMethod(models.Model):
     class DeliveryType(models.TextChoices):
         COURIER = 'courier', _('Курьер')
