@@ -323,5 +323,29 @@ class SizeAdmin(admin.ModelAdmin):
     list_editable = ('sort_order', 'is_active')
     readonly_fields = ('created_at', 'updated_at')
 
-admin.site.register(Banner)
+
+@admin.register(Banner)
+class BannerAdmin(admin.ModelAdmin):
+    list_display = ('title', 'position', 'is_active', 'sort_order', 'starts_at', 'ends_at', 'updated_at')
+    list_filter = ('is_active', 'position', 'starts_at', 'ends_at')
+    search_fields = ('title', 'subtitle', 'button_text', 'link')
+    ordering = ('sort_order', 'id')
+    list_editable = ('is_active', 'sort_order')
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        ('Контент', {
+            'fields': ('title', 'subtitle', 'button_text', 'link'),
+        }),
+        ('Изображения', {
+            'fields': ('image', 'image_mobile'),
+        }),
+        ('Показ', {
+            'fields': ('position', 'is_active', 'sort_order', 'starts_at', 'ends_at'),
+        }),
+        ('Системные поля', {
+            'fields': ('created_at', 'updated_at'),
+        }),
+    )
+
+
 admin.site.register(Promo)

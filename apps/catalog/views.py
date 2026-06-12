@@ -536,7 +536,7 @@ class BannerListView(generics.ListAPIView):
         return qs.filter(
             models.Q(starts_at__isnull=True) | models.Q(starts_at__lte=now),
             models.Q(ends_at__isnull=True) | models.Q(ends_at__gte=now),
-        )
+        ).order_by('sort_order', 'id')
 
     @extend_schema(
         tags=['Catalog / Marketing'],

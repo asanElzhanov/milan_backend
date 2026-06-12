@@ -508,7 +508,10 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 class BannerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Banner
-        fields = ('id', 'title', 'subtitle', 'image', 'image_mobile', 'link', 'position')
+        fields = (
+            'id', 'title', 'subtitle', 'button_text',
+            'image', 'image_mobile', 'link', 'position', 'sort_order',
+        )
 
 
 class PromoCheckSerializer(serializers.Serializer):

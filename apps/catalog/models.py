@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
-from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator, URLValidator
 from mptt.managers import TreeManager
 from mptt.models import MPTTModel, TreeForeignKey
 
@@ -551,20 +551,45 @@ class Banner(models.Model):
         MID = 'mid', 'Средний'
         PROMO = 'promo', 'Промо'
 
-    title = models.CharField(max_length=200)
-    subtitle = models.CharField(max_length=300, blank=True)
-    image = models.ImageField(upload_to='banners/')
-    image_mobile = models.ImageField(upload_to='banners/', blank=True, null=True)
-    link = models.CharField(max_length=255, blank=True)
+    title = models.CharField(_('заголовок'), max_length=200)
+    subtitle = models.CharField(_('подзаголовок'), max_length=300, blank=True)
+    button_text = models.CharField(_('текст кнопки'), max_length=100, blank=True)
+    image = models.ImageField(_('изображение'), upload_to='banners/%Y/%m/%d/')
+    image_mobile = models.ImageField(_('мобильное изображение'), upload_to='banners/%Y/%m/%d/', blank=True, null=True)
+    link = models.CharField(_('ссылка'), max_length=255, blank=True)
     position = models.CharField(max_length=10, choices=Position.choices, default=Position.HERO)
-    is_active = models.BooleanField(default=True)
-    sort_order = models.PositiveSmallIntegerField(default=0)
-    starts_at = models.DateTimeField(null=True, blank=True)
-    ends_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(_('активен'), default=True)
+    sort_order = models.PositiveSmallIntegerField(_('порядок'), default=0)
+    starts_at = models.DateTimeField(_('начало показа'), null=True, blank=True)
+    ends_at = models.DateTimeField(_('окончание показа'), null=True, blank=True)
+    created_at = models.DateTimeField(_('создан'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('обновлен'), auto_now=True)
 
     class Meta:
         verbose_name = _('баннер')
-        ordering = ['sort_order']
+        verbose_name_plural = _('баннеры')
+        ordering = ['sort_order', 'id']
+        indexes = [
+            models.Index(fields=['is_active'], name='catalog_banner_active_idx'),
+            models.Index(fields=['sort_order'], name='catalog_banner_sort_idx'),
+        ]
+
+    def __str__(self):
+        return self.title
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.link and not self.link.startswith('/'):
+            validator = URLValidator()
+            try:
+                validator(self.link)
+            except ValidationError:
+                errors['link'] = _('Укажите абсолютный URL или внутренний путь, начинающийся с "/".')
+        if self.starts_at and self.ends_at and self.ends_at < self.starts_at:
+            errors['ends_at'] = _('Дата окончания не может быть раньше даты начала.')
+        if errors:
+            raise ValidationError(errors)
 
 
 class Promo(models.Model):
