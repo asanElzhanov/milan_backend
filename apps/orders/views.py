@@ -46,17 +46,6 @@ def get_cart_token(request):
     return None
 
 
-def parse_bool(value):
-    if value is None:
-        return None
-    value = value.lower()
-    if value in {'1', 'true', 'yes', 'y'}:
-        return True
-    if value in {'0', 'false', 'no', 'n'}:
-        return False
-    return None
-
-
 def get_current_cart(request, *, allow_create=False):
     """Получить корзину — для авторизованного по user, для гостя по token."""
     if request.user.is_authenticated:
@@ -290,23 +279,16 @@ class CartMergeView(APIView):
 # ── Заказы ────────────────────────────────────────────────────────────────────
 
 class DeliveryMethodListView(generics.ListAPIView):
-    """GET /orders/delivery-methods/?active=true"""
+    """GET /orders/delivery-methods/"""
     serializer_class = DeliveryMethodSerializer
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        queryset = DeliveryMethod.objects.all()
-        active = parse_bool(self.request.query_params.get('active'))
-        if active is True:
-            queryset = queryset.filter(is_active=True)
-        elif active is False:
-            queryset = queryset.filter(is_active=False)
-        return queryset.order_by('sort_order', 'name')
+        return DeliveryMethod.objects.filter(is_active=True).order_by('sort_order', 'name')
 
     @extend_schema(
         tags=['Orders / Delivery Methods'],
         summary='Список способов доставки',
-        parameters=[OpenApiParameter('active', OpenApiTypes.BOOL, OpenApiParameter.QUERY)],
         responses={200: DeliveryMethodSerializer(many=True)},
     )
     def get(self, request, *args, **kwargs):

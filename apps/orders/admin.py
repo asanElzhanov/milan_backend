@@ -158,7 +158,7 @@ admin.site.register(Cart)
 @admin.register(DeliveryMethod)
 class DeliveryMethodAdmin(admin.ModelAdmin):
     list_display = (
-        'name', 'code', 'slug', 'delivery_type', 'price_type',
+        'name', 'code', 'delivery_type', 'price_type',
         'base_price', 'free_from_amount', 'is_active', 'sort_order',
     )
     list_filter = ('is_active', 'delivery_type', 'price_type')

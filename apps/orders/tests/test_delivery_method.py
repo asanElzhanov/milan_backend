@@ -1,11 +1,13 @@
 from decimal import Decimal
 
+from django.contrib import admin
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from apps.orders.admin import DeliveryMethodAdmin
 from apps.orders.models import DeliveryMethod
 
 
@@ -81,6 +83,11 @@ class DeliveryMethodModelTests(TestCase):
         self.assertEqual(method.calculate_price(Decimal('1000.00')), (Decimal('0.00'), False))
 
 
+class DeliveryMethodAdminTests(TestCase):
+    def test_delivery_method_admin_is_registered(self):
+        self.assertIsInstance(admin.site._registry[DeliveryMethod], DeliveryMethodAdmin)
+
+
 class DeliveryMethodAPITests(APITestCase):
     list_url = '/api/v1/orders/delivery-methods/'
 
@@ -113,23 +120,17 @@ class DeliveryMethodAPITests(APITestCase):
     def response_items(self, response):
         return response.data['results'] if isinstance(response.data, dict) else response.data
 
-    def test_delivery_method_list_returns_methods_ordered_by_sort_order(self):
+    def test_delivery_method_list_returns_only_active_methods_ordered_by_sort_order(self):
         response = self.client.get(self.list_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         codes = [item['code'] for item in self.response_items(response)]
-        self.assertEqual(codes, ['courier', 'pickup', 'archive'])
+        self.assertEqual(codes, ['courier', 'pickup'])
 
-    def test_delivery_method_list_filters_active_methods(self):
-        response = self.client.get(self.list_url, {'active': 'true'})
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        codes = {item['code'] for item in self.response_items(response)}
-        self.assertEqual(codes, {'courier', 'pickup'})
-
-    def test_delivery_method_list_filters_inactive_methods(self):
+    def test_delivery_method_list_does_not_expose_inactive_methods(self):
         response = self.client.get(self.list_url, {'active': 'false'})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         codes = {item['code'] for item in self.response_items(response)}
-        self.assertEqual(codes, {'archive'})
+        self.assertEqual(codes, {'courier', 'pickup'})
+        self.assertNotIn('archive', codes)
