@@ -1,6 +1,11 @@
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Avg
+from django.utils import timezone
 
+from apps.accounts.models import User
 from apps.orders.models import Order
 
 from .models import ProductVariant, Review, StockMovement
@@ -24,6 +29,93 @@ class DuplicateReviewError(ValidationError):
 
 class InvalidReviewRatingError(ValidationError):
     pass
+
+
+class ReviewModerationError(ValidationError):
+    pass
+
+
+class ReviewRatingService:
+    @classmethod
+    def recalculate_product_rating(cls, product):
+        stats = Review.objects.filter(
+            product=product,
+            status=Review.Status.PUBLISHED,
+        ).aggregate(average_rating=Avg('rating'))
+        reviews_count = Review.objects.filter(
+            product=product,
+            status=Review.Status.PUBLISHED,
+        ).count()
+        average_rating = stats['average_rating']
+        product.rating = cls._normalize_rating(average_rating)
+        product.reviews_count = reviews_count
+        product.save(update_fields=['rating', 'reviews_count', 'updated_at'])
+        return product
+
+    @staticmethod
+    def _normalize_rating(value):
+        if value is None:
+            return Decimal('0.00')
+        return Decimal(str(value)).quantize(Decimal('0.01'))
+
+
+class ReviewModerationService:
+    @classmethod
+    def publish_review(cls, review, user, comment=''):
+        return cls._moderate_review(
+            review=review,
+            user=user,
+            status=Review.Status.PUBLISHED,
+            comment=comment,
+        )
+
+    @classmethod
+    def reject_review(cls, review, user, comment=''):
+        return cls._moderate_review(
+            review=review,
+            user=user,
+            status=Review.Status.REJECTED,
+            comment=comment,
+        )
+
+    @classmethod
+    def hide_review(cls, review, user, comment=''):
+        return cls._moderate_review(
+            review=review,
+            user=user,
+            status=Review.Status.HIDDEN,
+            comment=comment,
+        )
+
+    @classmethod
+    def _moderate_review(cls, *, review, user, status, comment=''):
+        cls._validate_moderator(user)
+        with transaction.atomic():
+            locked_review = (
+                Review.objects.select_for_update()
+                .select_related('product')
+                .get(pk=review.pk)
+            )
+            locked_review.status = status
+            locked_review.moderated_by = user
+            locked_review.moderated_at = timezone.now()
+            locked_review.moderation_comment = comment or ''
+            locked_review.save(update_fields=[
+                'status', 'moderated_by', 'moderated_at',
+                'moderation_comment', 'updated_at',
+            ])
+            ReviewRatingService.recalculate_product_rating(locked_review.product)
+            return locked_review
+
+    @staticmethod
+    def _validate_moderator(user):
+        if not user or not user.is_authenticated:
+            raise ReviewModerationError('Войдите в аккаунт для модерации отзыва.')
+        if getattr(user, 'is_superuser', False):
+            return
+        if getattr(user, 'role', None) in {User.Role.MANAGER, User.Role.ADMIN}:
+            return
+        raise ReviewModerationError('Недостаточно прав для модерации отзыва.')
 
 
 class ProductReviewService:

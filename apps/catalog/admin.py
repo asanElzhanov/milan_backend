@@ -1,12 +1,12 @@
 from django.contrib import admin
 from django.db import models
 from django.db.models import Exists, OuterRef
-from django.utils import timezone
 from mptt.admin import MPTTModelAdmin
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
     ProductMedia, ProductVariant, Promo, Review, Size, StockMovement,
 )
+from .services import ReviewModerationService
 
 
 class ProductSaleFilter(admin.SimpleListFilter):
@@ -221,18 +221,20 @@ class ProductMediaAdmin(admin.ModelAdmin):
 class ReviewAdmin(admin.ModelAdmin):
     list_display = (
         'product', 'user', 'order', 'rating', 'status',
-        'is_verified_purchase', 'moderated_by', 'created_at',
+        'created_at', 'moderated_by', 'moderated_at',
     )
     list_filter = (
-        'status', 'rating', 'is_verified_purchase',
-        'created_at', 'moderated_at',
+        'status', 'rating', 'created_at',
     )
     search_fields = (
         'product__name', 'product__slug',
-        'user__email', 'order__order_number', 'text',
+        'user__email', 'user__first_name', 'user__last_name',
+        'order__order_number', 'text',
     )
-    autocomplete_fields = ('product', 'user', 'order', 'moderated_by')
-    readonly_fields = ('created_at', 'updated_at')
+    readonly_fields = (
+        'product', 'user', 'order', 'rating', 'text',
+        'created_at', 'updated_at', 'moderated_by', 'moderated_at',
+    )
     ordering = ('-created_at',)
     actions = ('publish_reviews', 'reject_reviews', 'hide_reviews')
     fieldsets = (
@@ -248,34 +250,39 @@ class ReviewAdmin(admin.ModelAdmin):
     )
 
     def save_model(self, request, obj, form, change):
-        if 'status' in form.changed_data:
-            obj.moderated_by = request.user
-            obj.moderated_at = timezone.now()
+        if change and 'status' in form.changed_data:
+            persisted_review = Review.objects.get(pk=obj.pk)
+            service = self._moderation_service(obj.status)
+            if service:
+                service(persisted_review, request.user, comment=obj.moderation_comment)
+                return
         super().save_model(request, obj, form, change)
+
+    def has_add_permission(self, request):
+        return False
+
+    @staticmethod
+    def _moderation_service(status):
+        return {
+            Review.Status.PUBLISHED: ReviewModerationService.publish_review,
+            Review.Status.REJECTED: ReviewModerationService.reject_review,
+            Review.Status.HIDDEN: ReviewModerationService.hide_review,
+        }.get(status)
 
     @admin.action(description='Опубликовать выбранные отзывы')
     def publish_reviews(self, request, queryset):
-        queryset.update(
-            status=Review.Status.PUBLISHED,
-            moderated_by=request.user,
-            moderated_at=timezone.now(),
-        )
+        for review in queryset:
+            ReviewModerationService.publish_review(review, request.user)
 
     @admin.action(description='Отклонить выбранные отзывы')
     def reject_reviews(self, request, queryset):
-        queryset.update(
-            status=Review.Status.REJECTED,
-            moderated_by=request.user,
-            moderated_at=timezone.now(),
-        )
+        for review in queryset:
+            ReviewModerationService.reject_review(review, request.user)
 
     @admin.action(description='Скрыть выбранные отзывы')
     def hide_reviews(self, request, queryset):
-        queryset.update(
-            status=Review.Status.HIDDEN,
-            moderated_by=request.user,
-            moderated_at=timezone.now(),
-        )
+        for review in queryset:
+            ReviewModerationService.hide_review(review, request.user)
 
 @admin.register(Category)
 class CategoryAdmin(MPTTModelAdmin):

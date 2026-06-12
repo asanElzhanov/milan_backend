@@ -5,6 +5,7 @@ from rest_framework.test import APITestCase
 
 from apps.accounts.models import User
 from apps.catalog.models import Brand, Category, Product, ProductVariant, Review
+from apps.catalog.services import ReviewModerationService
 from apps.orders.models import Order, OrderItem
 
 
@@ -17,6 +18,10 @@ class ReviewApiTests(APITestCase):
             first_name='Aida',
         )
         self.other_user = User.objects.create_user(email='other-api-review@example.com')
+        self.manager = User.objects.create_user(
+            email='api-review-manager@example.com',
+            role=User.Role.MANAGER,
+        )
         self.product = Product.objects.create(
             sku='SKU-API-REVIEW',
             name='API Review Product',
@@ -78,6 +83,10 @@ class ReviewApiTests(APITestCase):
     def list_url(self, product=None):
         product = product or self.product
         return f'/api/v1/catalog/products/{product.slug}/reviews/'
+
+    def detail_url(self, product=None):
+        product = product or self.product
+        return f'/api/v1/catalog/products/{product.slug}/'
 
     def response_results(self, response):
         if isinstance(response.data, dict) and 'results' in response.data:
@@ -222,3 +231,26 @@ class ReviewApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(self.response_results(response)), 1)
+
+    def test_published_review_appears_publicly_and_updates_rating(self):
+        order = self.create_order()
+        self.add_item(order)
+        self.client.force_authenticate(user=self.user)
+        create_response = self.client.post(self.create_url(), {
+            'product_id': self.product.id,
+            'order_id': order.id,
+            'rating': 5,
+            'text': 'Needs moderation',
+        })
+        review = Review.objects.get(pk=create_response.data['id'])
+
+        pending_list_response = self.client.get(self.list_url())
+        ReviewModerationService.publish_review(review, self.manager)
+        published_list_response = self.client.get(self.list_url())
+        detail_response = self.client.get(self.detail_url())
+
+        self.assertEqual(len(self.response_results(pending_list_response)), 0)
+        self.assertEqual(len(self.response_results(published_list_response)), 1)
+        self.assertEqual(self.response_results(published_list_response)[0]['text'], 'Needs moderation')
+        self.assertEqual(detail_response.data['average_rating'], 5.0)
+        self.assertEqual(detail_response.data['reviews_count'], 1)

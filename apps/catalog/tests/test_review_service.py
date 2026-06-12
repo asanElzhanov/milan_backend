@@ -8,6 +8,8 @@ from apps.catalog.services import (
     DuplicateReviewError,
     InvalidReviewRatingError,
     ProductReviewService,
+    ReviewModerationError,
+    ReviewModerationService,
     ReviewNotAllowedError,
 )
 from apps.orders.models import Order, OrderItem
@@ -22,6 +24,14 @@ class ProductReviewServiceTests(TestCase):
         self.brand = Brand.objects.create(name='Nike', slug='review-nike')
         self.user = User.objects.create_user(email='review@example.com')
         self.other_user = User.objects.create_user(email='other-review@example.com')
+        self.manager = User.objects.create_user(
+            email='review-manager@example.com',
+            role=User.Role.MANAGER,
+        )
+        self.admin = User.objects.create_user(
+            email='review-admin@example.com',
+            role=User.Role.ADMIN,
+        )
         self.product = self.create_product('SKU-REVIEW-1', 'Review Product', 'review-product')
         self.other_product = self.create_product(
             'SKU-REVIEW-2',
@@ -233,3 +243,94 @@ class ProductReviewServiceTests(TestCase):
                 rating=6,
                 text='Bad rating',
             )
+
+    def test_manager_can_publish_review_and_update_rating(self):
+        order = self.create_order()
+        self.add_item(order)
+        review = ProductReviewService.create_review(
+            user=self.user,
+            product=self.product,
+            order=order,
+            rating=5,
+            text='Pending',
+        )
+
+        moderated_review = ReviewModerationService.publish_review(
+            review,
+            self.manager,
+            comment='Looks good',
+        )
+
+        self.product.refresh_from_db()
+        self.assertEqual(moderated_review.status, Review.Status.PUBLISHED)
+        self.assertEqual(moderated_review.moderated_by, self.manager)
+        self.assertIsNotNone(moderated_review.moderated_at)
+        self.assertEqual(moderated_review.moderation_comment, 'Looks good')
+        self.assertEqual(self.product.rating, Decimal('5.00'))
+        self.assertEqual(self.product.reviews_count, 1)
+
+    def test_admin_can_reject_review(self):
+        order = self.create_order()
+        self.add_item(order)
+        review = ProductReviewService.create_review(
+            user=self.user,
+            product=self.product,
+            order=order,
+            rating=2,
+            text='Pending',
+        )
+
+        moderated_review = ReviewModerationService.reject_review(review, self.admin)
+
+        self.product.refresh_from_db()
+        self.assertEqual(moderated_review.status, Review.Status.REJECTED)
+        self.assertEqual(moderated_review.moderated_by, self.admin)
+        self.assertEqual(self.product.rating, Decimal('0.00'))
+        self.assertEqual(self.product.reviews_count, 0)
+
+    def test_hiding_published_review_recalculates_rating(self):
+        first_order = self.create_order()
+        second_order = self.create_order()
+        self.add_item(first_order)
+        self.add_item(second_order)
+        first_review = ProductReviewService.create_review(
+            user=self.user,
+            product=self.product,
+            order=first_order,
+            rating=5,
+            text='First',
+        )
+        second_review = ProductReviewService.create_review(
+            user=self.user,
+            product=self.product,
+            order=second_order,
+            rating=3,
+            text='Second',
+        )
+        ReviewModerationService.publish_review(first_review, self.manager)
+        ReviewModerationService.publish_review(second_review, self.manager)
+
+        ReviewModerationService.hide_review(first_review, self.manager)
+
+        self.product.refresh_from_db()
+        first_review.refresh_from_db()
+        self.assertEqual(first_review.status, Review.Status.HIDDEN)
+        self.assertEqual(self.product.rating, Decimal('3.00'))
+        self.assertEqual(self.product.reviews_count, 1)
+
+    def test_regular_user_cannot_moderate_review(self):
+        order = self.create_order()
+        self.add_item(order)
+        review = ProductReviewService.create_review(
+            user=self.user,
+            product=self.product,
+            order=order,
+            rating=5,
+            text='Pending',
+        )
+
+        with self.assertRaises(ReviewModerationError):
+            ReviewModerationService.publish_review(review, self.user)
+
+        review.refresh_from_db()
+        self.assertEqual(review.status, Review.Status.PENDING)
