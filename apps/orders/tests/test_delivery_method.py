@@ -9,6 +9,7 @@ from rest_framework.test import APITestCase
 
 from apps.orders.admin import DeliveryMethodAdmin
 from apps.orders.models import DeliveryMethod
+from apps.orders.services import DeliveryService, InvalidCheckoutDataError
 
 
 class DeliveryMethodModelTests(TestCase):
@@ -56,31 +57,6 @@ class DeliveryMethodModelTests(TestCase):
 
         with self.assertRaises(ValidationError):
             method.full_clean()
-
-    def test_calculate_price_for_fixed_with_free_threshold(self):
-        method = DeliveryMethod(
-            name='Fixed',
-            code='fixed',
-            slug='fixed',
-            delivery_type=DeliveryMethod.DeliveryType.COURIER,
-            price_type=DeliveryMethod.PriceType.FIXED,
-            base_price=Decimal('1000.00'),
-            free_from_amount=Decimal('10000.00'),
-        )
-
-        self.assertEqual(method.calculate_price(Decimal('9999.00')), (Decimal('1000.00'), True))
-        self.assertEqual(method.calculate_price(Decimal('10000.00')), (Decimal('0.00'), True))
-
-    def test_manager_calculation_is_not_final(self):
-        method = DeliveryMethod(
-            name='Manager',
-            code='manager',
-            slug='manager',
-            delivery_type=DeliveryMethod.DeliveryType.KAZAKHSTAN_DELIVERY,
-            price_type=DeliveryMethod.PriceType.MANAGER_CALCULATION,
-        )
-
-        self.assertEqual(method.calculate_price(Decimal('1000.00')), (Decimal('0.00'), False))
 
 
 class DeliveryMethodAdminTests(TestCase):
@@ -134,3 +110,72 @@ class DeliveryMethodAPITests(APITestCase):
         codes = {item['code'] for item in self.response_items(response)}
         self.assertEqual(codes, {'courier', 'pickup'})
         self.assertNotIn('archive', codes)
+
+
+class DeliveryServiceTests(TestCase):
+    def make_method(self, **overrides):
+        data = {
+            'name': 'Delivery',
+            'code': 'delivery',
+            'slug': 'delivery',
+            'delivery_type': DeliveryMethod.DeliveryType.COURIER,
+            'price_type': DeliveryMethod.PriceType.FIXED,
+            'base_price': Decimal('1000.00'),
+            'is_active': True,
+        }
+        data.update(overrides)
+        return DeliveryMethod(**data)
+
+    def test_fixed_returns_base_price_as_decimal(self):
+        method = self.make_method(base_price=Decimal('1500.00'))
+
+        calculation = DeliveryService.calculate_delivery(method, Decimal('5000.00'))
+
+        self.assertEqual(calculation.delivery_price, Decimal('1500.00'))
+        self.assertIsInstance(calculation.delivery_price, Decimal)
+        self.assertFalse(calculation.requires_manager_calculation)
+
+    def test_free_returns_zero(self):
+        method = self.make_method(
+            price_type=DeliveryMethod.PriceType.FREE,
+            base_price=Decimal('1500.00'),
+        )
+
+        calculation = DeliveryService.calculate_delivery(method, Decimal('5000.00'))
+
+        self.assertEqual(calculation.delivery_price, Decimal('0.00'))
+        self.assertFalse(calculation.requires_manager_calculation)
+
+    def test_manager_calculation_returns_zero_and_requires_manager_flag(self):
+        method = self.make_method(price_type=DeliveryMethod.PriceType.MANAGER_CALCULATION)
+
+        calculation = DeliveryService.calculate_delivery(method, Decimal('5000.00'))
+
+        self.assertEqual(calculation.delivery_price, Decimal('0.00'))
+        self.assertTrue(calculation.requires_manager_calculation)
+        self.assertIn('менеджером', calculation.message)
+
+    def test_free_from_amount_makes_fixed_delivery_free_at_threshold(self):
+        method = self.make_method(
+            base_price=Decimal('1000.00'),
+            free_from_amount=Decimal('10000.00'),
+        )
+
+        paid = DeliveryService.calculate_delivery(method, Decimal('9999.00'))
+        free = DeliveryService.calculate_delivery(method, Decimal('10000.00'))
+
+        self.assertEqual(paid.delivery_price, Decimal('1000.00'))
+        self.assertEqual(free.delivery_price, Decimal('0.00'))
+        self.assertFalse(free.requires_manager_calculation)
+
+    def test_inactive_delivery_method_is_rejected(self):
+        method = self.make_method(is_active=False)
+
+        with self.assertRaises(InvalidCheckoutDataError):
+            DeliveryService.calculate_delivery(method, Decimal('5000.00'))
+
+    def test_float_subtotal_is_rejected(self):
+        method = self.make_method()
+
+        with self.assertRaises(InvalidCheckoutDataError):
+            DeliveryService.calculate_delivery(method, 5000.00)

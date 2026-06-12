@@ -1,6 +1,6 @@
+from dataclasses import dataclass
 from decimal import Decimal
 import uuid
-
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
@@ -45,6 +45,61 @@ class InactiveProductError(CheckoutError):
 
 class InvalidCheckoutDataError(CheckoutError):
     pass
+
+
+@dataclass(frozen=True)
+class DeliveryCalculation:
+    delivery_price: Decimal
+    requires_manager_calculation: bool
+    message: str = ''
+
+
+class DeliveryService:
+    @classmethod
+    def calculate_delivery(cls, delivery_method, subtotal, city='', address=''):
+        if isinstance(subtotal, float):
+            raise InvalidCheckoutDataError('Сумма корзины должна быть Decimal.')
+        subtotal = Decimal(subtotal)
+        if subtotal < Decimal('0.00'):
+            raise InvalidCheckoutDataError('Сумма корзины не может быть отрицательной.')
+        if not delivery_method.is_active:
+            raise InvalidCheckoutDataError('Некорректный способ доставки.')
+        if delivery_method.base_price < Decimal('0.00'):
+            raise InvalidCheckoutDataError('Стоимость доставки не может быть отрицательной.')
+        if (
+            delivery_method.free_from_amount is not None
+            and delivery_method.free_from_amount < Decimal('0.00')
+        ):
+            raise InvalidCheckoutDataError('Порог бесплатной доставки не может быть отрицательным.')
+
+        if delivery_method.price_type == DeliveryMethod.PriceType.MANAGER_CALCULATION:
+            return DeliveryCalculation(
+                delivery_price=Decimal('0.00'),
+                requires_manager_calculation=True,
+                message='Стоимость доставки уточняется менеджером.',
+            )
+
+        if delivery_method.price_type == DeliveryMethod.PriceType.FREE:
+            return DeliveryCalculation(
+                delivery_price=Decimal('0.00'),
+                requires_manager_calculation=False,
+                message='Доставка бесплатная.',
+            )
+
+        if (
+            delivery_method.free_from_amount is not None
+            and subtotal >= delivery_method.free_from_amount
+        ):
+            return DeliveryCalculation(
+                delivery_price=Decimal('0.00'),
+                requires_manager_calculation=False,
+                message='Доставка бесплатная от суммы заказа.',
+            )
+
+        return DeliveryCalculation(
+            delivery_price=delivery_method.base_price,
+            requires_manager_calculation=False,
+        )
 
 
 class OrderStatusError(ValidationError):
@@ -367,8 +422,13 @@ class CheckoutService:
                 })
 
             delivery_method = cls._get_delivery_method(checkout_data['delivery_method'])
-            delivery_price, delivery_price_is_final = delivery_method.calculate_price(items_subtotal)
-            total_amount = items_subtotal + delivery_price
+            delivery = DeliveryService.calculate_delivery(
+                delivery_method=delivery_method,
+                subtotal=items_subtotal,
+                city=checkout_data.get('city') or '',
+                address=checkout_data.get('delivery_address') or '',
+            )
+            total_amount = items_subtotal + delivery.delivery_price
 
             order = Order.objects.create(
                 user=user if user and user.is_authenticated else None,
@@ -380,8 +440,8 @@ class CheckoutService:
                 delivery_method=delivery_method.code,
                 delivery_method_ref=delivery_method,
                 delivery_method_name=delivery_method.name,
-                delivery_price=delivery_price,
-                delivery_price_is_final=delivery_price_is_final,
+                delivery_price=delivery.delivery_price,
+                delivery_price_is_final=not delivery.requires_manager_calculation,
                 total_amount=total_amount,
                 status=Order.Status.NEW,
                 payment_status=Order.PaymentStatus.UNPAID,

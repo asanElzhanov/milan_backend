@@ -197,16 +197,6 @@ class DeliveryMethod(models.Model):
             self.slug = slugify(self.name, allow_unicode=True)
         super().save(*args, **kwargs)
 
-    def calculate_price(self, amount):
-        if self.price_type == self.PriceType.FREE:
-            return Decimal('0.00'), True
-        if self.price_type == self.PriceType.MANAGER_CALCULATION:
-            return Decimal('0.00'), False
-        if self.free_from_amount is not None and amount >= self.free_from_amount:
-            return Decimal('0.00'), True
-        return self.base_price, True
-
-
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
     variant = models.ForeignKey(
