@@ -326,9 +326,12 @@ class SizeAdmin(admin.ModelAdmin):
 
 @admin.register(Banner)
 class BannerAdmin(admin.ModelAdmin):
-    list_display = ('title', 'position', 'is_active', 'sort_order', 'starts_at', 'ends_at', 'updated_at')
-    list_filter = ('is_active', 'position', 'starts_at', 'ends_at')
-    search_fields = ('title', 'subtitle', 'button_text', 'link')
+    list_display = (
+        'title', 'subtitle', 'link', 'sort_order',
+        'is_active', 'created_at', 'updated_at',
+    )
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('title', 'subtitle', 'link')
     ordering = ('sort_order', 'id')
     list_editable = ('is_active', 'sort_order')
     readonly_fields = ('created_at', 'updated_at')

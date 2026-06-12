@@ -14,6 +14,7 @@ class StaticPageAdminTests(TestCase):
         self.client.force_login(self.admin_user)
         self.page = StaticPage.objects.create(
             title='Privacy Policy',
+            slug='privacy-policy',
             content='Privacy content',
         )
 
@@ -22,6 +23,7 @@ class StaticPageAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Privacy Policy')
+        self.assertContains(response, 'privacy-policy')
 
     def test_static_page_change_page_opens(self):
         response = self.client.get(reverse('admin:cms_staticpage_change', args=[self.page.pk]))

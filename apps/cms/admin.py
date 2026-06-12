@@ -5,9 +5,9 @@ from .models import StaticPage
 
 @admin.register(StaticPage)
 class StaticPageAdmin(admin.ModelAdmin):
-    list_display = ('title', 'slug', 'is_active', 'updated_at')
-    list_filter = ('is_active', 'created_at', 'updated_at')
-    search_fields = ('title', 'slug', 'content', 'seo_title')
+    list_display = ('title', 'slug', 'is_active', 'created_at', 'updated_at')
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('title', 'slug', 'content')
     prepopulated_fields = {'slug': ('title',)}
     list_editable = ('is_active',)
     ordering = ('title',)
@@ -26,4 +26,3 @@ class StaticPageAdmin(admin.ModelAdmin):
             'fields': ('created_at', 'updated_at'),
         }),
     )
-

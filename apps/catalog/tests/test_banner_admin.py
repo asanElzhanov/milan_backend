@@ -21,6 +21,7 @@ class BannerAdminTests(TestCase):
         self.client.force_login(self.admin_user)
         self.banner = Banner.objects.create(
             title='Admin banner',
+            subtitle='Season collection',
             image=self.make_image_file(),
             button_text='Shop',
             link='/catalog/',
@@ -42,6 +43,8 @@ class BannerAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Admin banner')
+        self.assertContains(response, 'Season collection')
+        self.assertContains(response, '/catalog/')
 
     def test_banner_change_page_opens(self):
         response = self.client.get(reverse('admin:catalog_banner_change', args=[self.banner.pk]))
