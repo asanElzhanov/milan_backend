@@ -47,9 +47,12 @@ KaspiWebhookRequestSerializer = inline_serializer(
 
 
 def delivery_price_not_final_response(order):
-    if order.delivery_price_is_final:
-        return None
-    return Response({'detail': 'Стоимость доставки уточняется менеджером'}, status=400)
+    requires_manager = getattr(order, 'delivery_requires_manager_calculation', None)
+    if requires_manager is None:
+        requires_manager = not order.delivery_price_is_final
+    if requires_manager:
+        return Response({'detail': 'Стоимость доставки уточняется менеджером'}, status=400)
+    return None
 
 
 class StripeCreateIntentView(APIView):

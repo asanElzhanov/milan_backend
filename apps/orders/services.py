@@ -96,6 +96,9 @@ class DeliveryService:
                 message='Доставка бесплатная от суммы заказа.',
             )
 
+        if delivery_method.price_type != DeliveryMethod.PriceType.FIXED:
+            raise InvalidCheckoutDataError('Некорректный тип цены доставки.')
+
         return DeliveryCalculation(
             delivery_price=delivery_method.base_price,
             requires_manager_calculation=False,

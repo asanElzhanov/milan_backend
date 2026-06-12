@@ -13,6 +13,22 @@ from apps.orders.services import DeliveryService, InvalidCheckoutDataError
 
 
 class DeliveryMethodModelTests(TestCase):
+    def test_initial_delivery_methods_exist(self):
+        methods = {
+            method.code: method
+            for method in DeliveryMethod.objects.filter(
+                code__in={'courier', 'pickup', 'kazakhstan_delivery'}
+            )
+        }
+
+        self.assertEqual(set(methods), {'courier', 'pickup', 'kazakhstan_delivery'})
+        self.assertEqual(methods['courier'].delivery_type, DeliveryMethod.DeliveryType.COURIER)
+        self.assertEqual(methods['pickup'].delivery_type, DeliveryMethod.DeliveryType.PICKUP)
+        self.assertEqual(
+            methods['kazakhstan_delivery'].delivery_type,
+            DeliveryMethod.DeliveryType.KAZAKHSTAN_DELIVERY,
+        )
+
     def test_code_is_unique(self):
         DeliveryMethod.objects.create(
             name='Express',
@@ -179,3 +195,9 @@ class DeliveryServiceTests(TestCase):
 
         with self.assertRaises(InvalidCheckoutDataError):
             DeliveryService.calculate_delivery(method, 5000.00)
+
+    def test_invalid_price_type_is_rejected(self):
+        method = self.make_method(price_type='broken')
+
+        with self.assertRaises(InvalidCheckoutDataError):
+            DeliveryService.calculate_delivery(method, Decimal('5000.00'))

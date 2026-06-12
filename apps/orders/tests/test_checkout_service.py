@@ -204,6 +204,23 @@ class CheckoutServiceTests(TestCase):
         self.assertEqual(order.delivery_method_ref, self.courier_delivery)
         self.assertEqual(order.delivery_method_code, self.courier_delivery.code)
 
+    def test_checkout_keeps_delivery_snapshot_if_method_changes_later(self):
+        cart = self.create_cart()
+
+        order = self.checkout(cart)
+        self.courier_delivery.name = 'Changed courier'
+        self.courier_delivery.code = 'changed-courier'
+        self.courier_delivery.base_price = Decimal('9999.00')
+        self.courier_delivery.save(update_fields=['name', 'code', 'base_price', 'updated_at'])
+        order.refresh_from_db()
+
+        self.assertEqual(order.delivery_method, 'courier')
+        self.assertEqual(order.delivery_method_code, 'courier')
+        self.assertEqual(order.delivery_method_name, 'Курьерская доставка')
+        self.assertEqual(order.delivery_price, Decimal('1000.00'))
+        self.assertEqual(order.items_total, Decimal('340.00'))
+        self.assertEqual(order.total_amount, Decimal('1340.00'))
+
     def test_checkout_rejects_inactive_delivery_method(self):
         self.courier_delivery.is_active = False
         self.courier_delivery.save(update_fields=['is_active', 'updated_at'])
