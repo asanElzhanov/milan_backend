@@ -220,3 +220,46 @@ class PromoCodeServiceTests(TestCase):
         self.assertEqual(order.total_amount, Decimal('1216.00'))
         self.assertEqual(promo_code.used_count, 1)
         self.assertIsNone(self.cart.promo_code)
+
+    def test_checkout_rejects_cart_promo_code_when_limit_is_exhausted_after_apply(self):
+        promo_code = self.create_promo_code(usage_limit=1)
+        CartService.apply_promo_code(self.cart, 'PROMO10', user=self.user)
+        PromoCode.objects.filter(pk=promo_code.pk).update(used_count=1)
+
+        with self.assertRaises(PromoCodeUsageLimitExceededError):
+            CheckoutService.checkout(
+                cart=self.cart,
+                user=self.user,
+                customer_name='Customer Name',
+                phone='+77011234567',
+                email='customer@example.com',
+                city='Almaty',
+                delivery_address='Abay 10',
+                delivery_method=Order.DeliveryMethod.COURIER,
+            )
+
+        promo_code.refresh_from_db()
+        self.cart.refresh_from_db()
+        self.assertEqual(promo_code.used_count, 1)
+        self.assertEqual(self.cart.promo_code, promo_code)
+        self.assertTrue(CartItem.objects.filter(cart=self.cart).exists())
+        self.assertFalse(Order.objects.exists())
+        self.assertFalse(PromoCodeUsage.objects.exists())
+
+    def test_mark_as_used_does_not_exceed_usage_limit(self):
+        promo_code = self.create_promo_code(usage_limit=1, used_count=1)
+        order = Order.objects.create(
+            user=self.user,
+            customer_name='Customer Name',
+            phone='+77011234567',
+            email='customer@example.com',
+            delivery_method=Order.DeliveryMethod.COURIER,
+            total_amount=Decimal('100.00'),
+        )
+
+        with self.assertRaises(PromoCodeUsageLimitExceededError):
+            PromoCodeService.mark_as_used(promo_code, order=order, user=self.user)
+
+        promo_code.refresh_from_db()
+        self.assertEqual(promo_code.used_count, 1)
+        self.assertFalse(PromoCodeUsage.objects.exists())

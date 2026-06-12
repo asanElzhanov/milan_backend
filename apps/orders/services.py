@@ -3,7 +3,7 @@ from decimal import Decimal
 import uuid
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from apps.catalog.models import ProductVariant
@@ -517,13 +517,21 @@ class PromoCodeService:
 
     @classmethod
     def mark_as_used(cls, promo_code, *, order, user=None):
-        PromoCode.objects.filter(pk=promo_code.pk).update(used_count=F('used_count') + 1)
-        promo_code.refresh_from_db(fields=['used_count'])
-        return PromoCodeUsage.objects.create(
-            promo_code=promo_code,
-            order=order,
-            user=user if user and user.is_authenticated else None,
-        )
+        with transaction.atomic():
+            updated = (
+                PromoCode.objects
+                .filter(pk=promo_code.pk)
+                .filter(Q(usage_limit__isnull=True) | Q(used_count__lt=F('usage_limit')))
+                .update(used_count=F('used_count') + 1)
+            )
+            if not updated:
+                raise PromoCodeUsageLimitExceededError('Лимит использований промокода исчерпан.')
+            promo_code.refresh_from_db(fields=['used_count'])
+            return PromoCodeUsage.objects.create(
+                promo_code=promo_code,
+                order=order,
+                user=user if user and user.is_authenticated else None,
+            )
 
     @classmethod
     def _build_result(cls, promo_code, subtotal, discount_amount):
@@ -671,9 +679,8 @@ class CheckoutService:
                 )
 
             locked_cart.items.select_for_update().delete()
-            if locked_cart.promo_code_id:
-                locked_cart.promo_code = None
-                locked_cart.save(update_fields=['promo_code', 'updated_at'])
+            locked_cart.promo_code = None
+            locked_cart.save(update_fields=['promo_code', 'updated_at'])
             OrderStatusHistory.objects.create(
                 order=order,
                 old_status=None,
