@@ -21,7 +21,10 @@ from .serializers import (
     StockAdjustmentSerializer, StockMovementSerializer, StockVariantSerializer,
 )
 from .services import InvalidStockQuantityError, StockService
-from .filters import ProductFilter, StockMovementFilter, StockVariantFilter, with_product_list_annotations
+from .filters import (
+    ProductFilter, StockMovementFilter, StockVariantFilter,
+    with_product_list_annotations, with_product_rating_annotations,
+)
 
 
 def _parse_bool(value):
@@ -294,9 +297,11 @@ class ProductDetailView(generics.RetrieveAPIView):
     lookup_field = 'slug'
 
     def get_queryset(self):
-        return Product.objects.filter(is_active=True).select_related(
+        queryset = Product.objects.filter(is_active=True).select_related(
             'category', 'brand'
-        ).prefetch_related(
+        )
+        queryset = with_product_rating_annotations(queryset)
+        return queryset.prefetch_related(
             Prefetch('images', queryset=ProductImage.objects.order_by('sort_order', 'id')),
             Prefetch(
                 'media',

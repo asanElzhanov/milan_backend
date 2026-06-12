@@ -1,6 +1,7 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import models
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
-from django.core.exceptions import ValidationError as DjangoValidationError
 
 from apps.orders.models import Order
 
@@ -308,6 +309,8 @@ class ProductListSerializer(serializers.ModelSerializer):
     in_stock = serializers.SerializerMethodField()
     available_colors = serializers.SerializerMethodField()
     available_sizes = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    reviews_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -318,7 +321,7 @@ class ProductListSerializer(serializers.ModelSerializer):
             'is_new', 'is_sale', 'is_active',
             'main_image', 'min_price', 'in_stock',
             'available_colors', 'available_sizes',
-            'rating', 'reviews_count',
+            'rating', 'average_rating', 'reviews_count',
         )
 
     @extend_schema_field(OpenApiTypes.URI)
@@ -380,6 +383,20 @@ class ProductListSerializer(serializers.ModelSerializer):
             if variant.in_stock and variant.size:
                 sizes[variant.size.id] = variant.size
         return SizeSerializer(sizes.values(), many=True).data
+
+    @extend_schema_field(OpenApiTypes.FLOAT)
+    def get_average_rating(self, obj):
+        average_rating = getattr(obj, '_average_rating', None)
+        if average_rating is None:
+            return None
+        return round(float(average_rating), 2)
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_reviews_count(self, obj):
+        reviews_count = getattr(obj, '_published_reviews_count', None)
+        if reviews_count is not None:
+            return reviews_count
+        return obj.reviews.filter(status=Review.Status.PUBLISHED).count()
 
 
 # Детальный сериализатор для карточки товара
@@ -446,18 +463,25 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.FLOAT)
     def get_average_rating(self, obj):
+        average_rating = getattr(obj, '_average_rating', None)
+        if average_rating is not None:
+            return round(float(average_rating), 2)
         reviews = getattr(obj, 'approved_reviews', None)
         if reviews is not None:
             ratings = [review.rating for review in reviews]
             if not ratings:
                 return None
             return round(sum(ratings) / len(ratings), 2)
-        if obj.reviews_count:
-            return obj.rating
-        return None
+        average_rating = obj.reviews.filter(
+            status=Review.Status.PUBLISHED,
+        ).aggregate(models.Avg('rating'))['rating__avg']
+        return round(float(average_rating), 2) if average_rating is not None else None
 
     @extend_schema_field(OpenApiTypes.INT)
     def get_reviews_count(self, obj):
+        reviews_count = getattr(obj, '_published_reviews_count', None)
+        if reviews_count is not None:
+            return reviews_count
         reviews = getattr(obj, 'approved_reviews', None)
         if reviews is not None:
             return len(reviews)

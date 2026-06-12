@@ -220,6 +220,24 @@ class ProductDetailApiTests(APITestCase):
             text='Hidden',
             status=Review.Status.HIDDEN,
         )
+        pending_user = User.objects.create_user(email='pending@example.com')
+        rejected_user = User.objects.create_user(email='rejected@example.com')
+        Review.objects.create(
+            product=self.product,
+            user=pending_user,
+            order=self.make_order(pending_user, 'Pending'),
+            rating=1,
+            text='Pending',
+            status=Review.Status.PENDING,
+        )
+        Review.objects.create(
+            product=self.product,
+            user=rejected_user,
+            order=self.make_order(rejected_user, 'Rejected'),
+            rating=1,
+            text='Rejected',
+            status=Review.Status.REJECTED,
+        )
 
         response = self.client.get(self.detail_url())
 
@@ -227,6 +245,18 @@ class ProductDetailApiTests(APITestCase):
         self.assertEqual(response.data['average_rating'], 4.0)
         self.assertEqual(response.data['reviews_count'], 2)
         self.assertEqual(len(response.data['reviews']), 2)
+        self.assertEqual(
+            {review['text'] for review in response.data['reviews']},
+            {'Great', 'Good'},
+        )
+
+    def test_rating_values_are_empty_without_published_reviews(self):
+        response = self.client.get(self.detail_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.data['average_rating'])
+        self.assertEqual(response.data['reviews_count'], 0)
+        self.assertEqual(response.data['reviews'], [])
 
     def test_product_detail_uses_bounded_number_of_queries(self):
         ProductImage.objects.create(

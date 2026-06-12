@@ -1,9 +1,17 @@
 from django.db import models
-from django.db.models import DecimalField, Exists, F, Min, OuterRef, Q
+from django.db.models import Avg, Count, DecimalField, Exists, F, Min, OuterRef, Q
 from django.db.models.functions import Coalesce
 import django_filters
 
-from .models import Category, Product, ProductVariant, StockMovement
+from .models import Category, Product, ProductVariant, Review, StockMovement
+
+
+def with_product_rating_annotations(queryset):
+    published_reviews = Q(reviews__status=Review.Status.PUBLISHED)
+    return queryset.annotate(
+        _average_rating=Avg('reviews__rating', filter=published_reviews),
+        _published_reviews_count=Count('reviews', filter=published_reviews, distinct=True),
+    )
 
 
 def with_product_list_annotations(queryset):
@@ -20,7 +28,7 @@ def with_product_list_annotations(queryset):
         is_active=True,
         stock_quantity__gt=0,
     )
-    return queryset.annotate(
+    queryset = queryset.annotate(
         _min_variant_price=min_variant_price,
     ).annotate(
         _min_price=Coalesce(
@@ -31,6 +39,7 @@ def with_product_list_annotations(queryset):
     ).annotate(
         _in_stock=Exists(active_stock_variants),
     )
+    return with_product_rating_annotations(queryset)
 
 
 class ProductFilter(django_filters.FilterSet):

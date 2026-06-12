@@ -9,7 +9,11 @@ from django.test.utils import CaptureQueriesContext
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.catalog.models import Brand, Category, Color, Product, ProductImage, ProductVariant, Size
+from apps.accounts.models import User
+from apps.catalog.models import (
+    Brand, Category, Color, Product, ProductImage, ProductVariant, Review, Size,
+)
+from apps.orders.models import Order
 
 
 class ProductListApiTests(APITestCase):
@@ -46,6 +50,20 @@ class ProductListApiTests(APITestCase):
 
     def make_image_file(self, name='product.jpg'):
         return SimpleUploadedFile(name, b'image content', content_type='image/jpeg')
+
+    def make_order(self, user, suffix):
+        return Order.objects.create(
+            user=user,
+            customer_name=f'Customer {suffix}',
+            phone='+77011234567',
+            email=user.email,
+            city='Almaty',
+            delivery_address='Abay 10',
+            delivery_method=Order.DeliveryMethod.COURIER,
+            total_amount=Decimal('100.00'),
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+        )
 
     def response_items(self, response):
         return response.data['results'] if isinstance(response.data, dict) else response.data
@@ -151,6 +169,49 @@ class ProductListApiTests(APITestCase):
         stock_by_slug = {item['slug']: item['in_stock'] for item in self.response_items(response)}
         self.assertTrue(stock_by_slug[in_stock_product.slug])
         self.assertFalse(stock_by_slug['no-variants-product'])
+
+    def test_product_list_returns_rating_from_published_reviews_only(self):
+        product = self.make_product(
+            'SKU-LIST-RATING',
+            'List Rating Product',
+            rating=Decimal('1.00'),
+            reviews_count=99,
+        )
+        first_user = User.objects.create_user(email='list-first@example.com')
+        second_user = User.objects.create_user(email='list-second@example.com')
+        hidden_user = User.objects.create_user(email='list-hidden@example.com')
+        Review.objects.create(
+            product=product,
+            user=first_user,
+            order=self.make_order(first_user, 'First'),
+            rating=5,
+            text='Great',
+            status=Review.Status.PUBLISHED,
+        )
+        Review.objects.create(
+            product=product,
+            user=second_user,
+            order=self.make_order(second_user, 'Second'),
+            rating=3,
+            text='Good',
+            status=Review.Status.PUBLISHED,
+        )
+        Review.objects.create(
+            product=product,
+            user=hidden_user,
+            order=self.make_order(hidden_user, 'Hidden'),
+            rating=1,
+            text='Hidden',
+            status=Review.Status.HIDDEN,
+        )
+
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        item = self.response_items(response)[0]
+        self.assertEqual(item['slug'], product.slug)
+        self.assertEqual(item['average_rating'], 4.0)
+        self.assertEqual(item['reviews_count'], 2)
 
     def test_product_list_filters_by_category_and_brand(self):
         matching = self.make_product('SKU-MATCH', 'Matching Product')
