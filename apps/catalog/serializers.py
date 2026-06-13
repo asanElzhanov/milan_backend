@@ -8,6 +8,7 @@ from apps.orders.models import Order
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
     ProductMedia, ProductVariant, Promo, Review, ReviewImage, Size, StockMovement,
+    ImportJob, ImportJobError,
 )
 from .services import ProductReviewService
 
@@ -170,6 +171,71 @@ class StockAdjustmentSerializer(serializers.Serializer):
     variant_id = serializers.IntegerField(min_value=1)
     new_quantity = serializers.IntegerField(min_value=0)
     comment = serializers.CharField(required=False, allow_blank=True, max_length=1000)
+
+
+class ImportJobUploadSerializer(serializers.ModelSerializer):
+    file = serializers.FileField(required=True)
+
+    class Meta:
+        model = ImportJob
+        fields = ('file',)
+
+    def validate_file(self, value):
+        filename = getattr(value, 'name', '')
+        if not filename.lower().endswith('.csv'):
+            raise serializers.ValidationError('Загрузите CSV файл с расширением .csv.')
+
+        content_type = getattr(value, 'content_type', '')
+        allowed_content_types = {
+            '',
+            'text/csv',
+            'application/csv',
+            'application/vnd.ms-excel',
+            'text/plain',
+            'application/octet-stream',
+        }
+        if content_type not in allowed_content_types:
+            raise serializers.ValidationError('Файл должен быть в формате CSV.')
+        return value
+
+
+class ImportJobBaseSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ImportJob
+        fields = (
+            'id', 'status', 'total_count', 'success_count', 'failed_count',
+            'error_message', 'error_report', 'created_by',
+            'started_at', 'finished_at', 'created_at',
+        )
+
+    @extend_schema_field(serializers.DictField(allow_null=True))
+    def get_created_by(self, obj):
+        if not obj.created_by:
+            return None
+        return {
+            'id': obj.created_by_id,
+            'email': obj.created_by.email,
+            'full_name': obj.created_by.full_name,
+        }
+
+
+class ImportJobListSerializer(ImportJobBaseSerializer):
+    pass
+
+
+class ImportJobDetailSerializer(ImportJobBaseSerializer):
+    pass
+
+
+class ImportJobErrorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ImportJobError
+        fields = (
+            'row_number', 'row_data', 'error_message',
+            'field_errors', 'created_at',
+        )
 
 
 class ReviewImageSerializer(serializers.ModelSerializer):

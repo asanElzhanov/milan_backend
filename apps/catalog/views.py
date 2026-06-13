@@ -1,9 +1,12 @@
 from django.db import models
 from django.db.models import F, Prefetch
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 from rest_framework import filters, generics, permissions, status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -12,6 +15,7 @@ from apps.accounts.permissions import IsManagerOrAdmin
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
     ProductMedia, ProductVariant, Promo, Review, Size, StockMovement,
+    ImportJob, ImportJobError,
 )
 from .serializers import (
     CategorySerializer, CategoryTreeSerializer, BrandSerializer, ColorSerializer, SizeSerializer,
@@ -19,10 +23,13 @@ from .serializers import (
     ReviewSerializer, ReviewCreateSerializer, ReviewListSerializer,
     BannerSerializer, PromoCheckSerializer,
     StockAdjustmentSerializer, StockMovementSerializer, StockVariantSerializer,
+    ImportJobUploadSerializer, ImportJobListSerializer, ImportJobDetailSerializer,
+    ImportJobErrorSerializer,
 )
+from .tasks import schedule_product_import
 from .services import InvalidStockQuantityError, StockService
 from .filters import (
-    ProductFilter, StockMovementFilter, StockVariantFilter,
+    ImportJobFilter, ProductFilter, StockMovementFilter, StockVariantFilter,
     with_product_list_annotations, with_product_rating_annotations,
 )
 
@@ -458,6 +465,97 @@ class StockAdjustmentView(APIView):
             StockMovementSerializer(movement, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class ProductImportJobListCreateView(generics.ListCreateAPIView):
+    permission_classes = [IsManagerOrAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_class = ImportJobFilter
+    ordering_fields = ['created_at', 'started_at', 'finished_at']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        return ImportJob.objects.select_related('created_by').order_by('-created_at')
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return ImportJobUploadSerializer
+        return ImportJobListSerializer
+
+    @extend_schema(
+        tags=['Catalog / Imports'],
+        summary='История импортов товаров',
+        parameters=[
+            OpenApiParameter('status', OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter('created_by', OpenApiTypes.INT, OpenApiParameter.QUERY),
+            OpenApiParameter('date_from', OpenApiTypes.DATETIME, OpenApiParameter.QUERY),
+            OpenApiParameter('date_to', OpenApiTypes.DATETIME, OpenApiParameter.QUERY),
+            OpenApiParameter('ordering', OpenApiTypes.STR, OpenApiParameter.QUERY),
+        ],
+        responses={200: ImportJobListSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=['Catalog / Imports'],
+        summary='Загрузить CSV импорт товаров',
+        request=ImportJobUploadSerializer,
+        responses={
+            202: ImportJobListSerializer,
+            400: OpenApiResponse(description='Ошибка валидации файла'),
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            import_job = serializer.save(created_by=request.user)
+            schedule_product_import(import_job.id)
+        import_job = ImportJob.objects.select_related('created_by').get(pk=import_job.pk)
+        return Response(
+            ImportJobListSerializer(import_job, context=self.get_serializer_context()).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class ProductImportJobDetailView(generics.RetrieveAPIView):
+    serializer_class = ImportJobDetailSerializer
+    permission_classes = [IsManagerOrAdmin]
+
+    def get_queryset(self):
+        return ImportJob.objects.select_related('created_by')
+
+    @extend_schema(
+        tags=['Catalog / Imports'],
+        summary='Детали импорта товаров',
+        responses={200: ImportJobDetailSerializer, 404: OpenApiResponse(description='Импорт не найден')},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+class ProductImportJobErrorListView(generics.ListAPIView):
+    serializer_class = ImportJobErrorSerializer
+    permission_classes = [IsManagerOrAdmin]
+    ordering = ['row_number']
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return ImportJobError.objects.none()
+        get_object_or_404(ImportJob, pk=self.kwargs['pk'])
+        return ImportJobError.objects.filter(
+            import_job_id=self.kwargs['pk'],
+        ).order_by('row_number', 'id')
+
+    @extend_schema(
+        tags=['Catalog / Imports'],
+        summary='Ошибки строк импорта товаров',
+        responses={200: ImportJobErrorSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 
 class ProductSimilarView(generics.ListAPIView):

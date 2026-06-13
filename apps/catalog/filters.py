@@ -3,7 +3,7 @@ from django.db.models import Avg, Count, DecimalField, Exists, F, Min, OuterRef,
 from django.db.models.functions import Coalesce
 import django_filters
 
-from .models import Category, Product, ProductVariant, Review, StockMovement
+from .models import Category, ImportJob, Product, ProductVariant, Review, StockMovement
 
 
 def with_product_rating_annotations(queryset):
@@ -209,3 +209,14 @@ class StockMovementFilter(django_filters.FilterSet):
         if value.isdigit():
             return queryset.filter(variant__product_id=value)
         return queryset.filter(variant__product__slug=value)
+
+
+class ImportJobFilter(django_filters.FilterSet):
+    status = django_filters.CharFilter(field_name='status')
+    created_by = django_filters.NumberFilter(field_name='created_by_id')
+    date_from = django_filters.IsoDateTimeFilter(field_name='created_at', lookup_expr='gte')
+    date_to = django_filters.IsoDateTimeFilter(field_name='created_at', lookup_expr='lte')
+
+    class Meta:
+        model = ImportJob
+        fields = ['status', 'created_by', 'date_from', 'date_to']

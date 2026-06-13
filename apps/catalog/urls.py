@@ -14,6 +14,10 @@ urlpatterns = [
     path('stock/adjust/', views.StockAdjustmentView.as_view(), name='stock-adjust'),
     path('stock/movements/', views.StockMovementListView.as_view(), name='stock-movements'),
 
+    path('imports/products/', views.ProductImportJobListCreateView.as_view(), name='product-imports'),
+    path('imports/products/<int:pk>/', views.ProductImportJobDetailView.as_view(), name='product-import-detail'),
+    path('imports/products/<int:pk>/errors/', views.ProductImportJobErrorListView.as_view(), name='product-import-errors'),
+
     path('products/', views.ProductListView.as_view(), name='product-list'),
     path('products/<slug:slug>/', views.ProductDetailView.as_view(), name='product-detail'),
     path('products/<slug:slug>/similar/', views.ProductSimilarView.as_view(), name='product-similar'),
