@@ -56,6 +56,13 @@ class BannerAPITests(APITestCase):
         self.assertEqual(items[0]['button_text'], 'Open')
         self.assertEqual(items[0]['link'], '/catalog/')
         self.assertIn('sort_order', items[0])
+        self.assertEqual(
+            set(items[0].keys()),
+            {
+                'id', 'title', 'subtitle', 'button_text',
+                'image', 'image_mobile', 'link', 'position', 'sort_order',
+            },
+        )
 
     def test_banner_list_filters_by_position(self):
         hero = self.make_banner('Hero', position=Banner.Position.HERO)
