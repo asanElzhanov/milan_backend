@@ -6,7 +6,10 @@ from django.urls import reverse
 
 from apps.accounts.models import User
 from apps.catalog.models import Brand, Category, Product, ProductVariant, StockMovement
-from apps.orders.admin import PromoCodeAdmin, PromoCodeAdminForm, PromoCodeUsageAdmin
+from apps.orders.admin import (
+    OrderAdmin, OrderItemInline, OrderStatusHistoryInline,
+    PromoCodeAdmin, PromoCodeAdminForm, PromoCodeUsageAdmin,
+)
 from apps.orders.models import (
     Cart, CartItem, Order, OrderItem, OrderStatusHistory,
     PromoCode, PromoCodeUsage,
@@ -55,7 +58,7 @@ class OrderAdminTests(TestCase):
     def change_url(self):
         return reverse('admin:orders_order_change', args=[self.order.pk])
 
-    def order_post_data(self, status_value=None, item_quantity=None):
+    def order_post_data(self, status_value=None, item_quantity=None, manager_comment=''):
         item = self.order.items.get()
         history = self.order.status_history.first()
         return {
@@ -69,6 +72,7 @@ class OrderAdminTests(TestCase):
             'status': status_value or self.order.status,
             'payment_status': self.order.payment_status,
             'comment': self.order.comment,
+            'manager_comment': manager_comment,
             'items-TOTAL_FORMS': '1',
             'items-INITIAL_FORMS': '1',
             'items-MIN_NUM_FORMS': '0',
@@ -95,13 +99,42 @@ class OrderAdminTests(TestCase):
         self.assertContains(response, self.order.order_number)
         self.assertContains(response, 'Order Customer')
 
+    def test_order_admin_searches_by_order_number(self):
+        response = self.client.get(
+            reverse('admin:orders_order_changelist'),
+            {'q': self.order.order_number},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.order.order_number)
+
+    def test_order_admin_searches_by_phone(self):
+        response = self.client.get(
+            reverse('admin:orders_order_changelist'),
+            {'q': '+77011234567'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.order.order_number)
+
+    def test_order_admin_filters_are_configured(self):
+        model_admin = OrderAdmin(Order, admin.site)
+
+        self.assertEqual(
+            model_admin.list_filter,
+            ('status', 'payment_status', 'delivery_method', 'city', 'created_at'),
+        )
+
     def test_order_admin_change_status_uses_service_and_creates_history(self):
         self.variant.refresh_from_db()
         self.assertEqual(self.variant.stock_quantity, 3)
 
         response = self.client.post(
             self.change_url(),
-            self.order_post_data(status_value=Order.Status.CANCELLED),
+            self.order_post_data(
+                status_value=Order.Status.CANCELLED,
+                manager_comment='Customer called support',
+            ),
         )
 
         self.assertEqual(response.status_code, 302)
@@ -116,10 +149,33 @@ class OrderAdminTests(TestCase):
         self.assertEqual(history.old_status, Order.Status.NEW)
         self.assertEqual(history.new_status, Order.Status.CANCELLED)
         self.assertEqual(history.changed_by, self.admin_user)
+        self.assertEqual(history.comment, 'Customer called support')
 
         movement = StockMovement.objects.latest('created_at')
         self.assertEqual(movement.operation_type, StockMovement.OperationType.ORDER_CANCEL)
         self.assertEqual(movement.user, self.admin_user)
+
+    def test_order_admin_rejects_invalid_status_transition(self):
+        response = self.client.post(
+            self.change_url(),
+            self.order_post_data(status_value=Order.Status.SHIPPED),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Недопустимый переход статуса new -&gt; shipped')
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.NEW)
+
+    def test_order_admin_saves_manager_comment_separately(self):
+        response = self.client.post(
+            self.change_url(),
+            self.order_post_data(manager_comment='Call before delivery'),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.comment, 'Admin test')
+        self.assertEqual(self.order.manager_comment, 'Call before delivery')
 
     def test_order_item_inline_is_readonly(self):
         response = self.client.post(
@@ -130,6 +186,27 @@ class OrderAdminTests(TestCase):
         self.assertEqual(response.status_code, 302)
         item = OrderItem.objects.get(order=self.order)
         self.assertEqual(item.quantity, 2)
+
+    def test_order_item_inline_permissions_are_read_only(self):
+        inline = OrderItemInline(Order, admin.site)
+
+        self.assertFalse(inline.has_add_permission(request=None, obj=self.order))
+        self.assertFalse(inline.has_change_permission(request=None, obj=self.order))
+        self.assertFalse(inline.has_delete_permission(request=None, obj=self.order))
+        self.assertEqual(
+            inline.readonly_fields,
+            (
+                'product_name', 'product_slug', 'sku', 'size_name', 'color_name',
+                'unit_price', 'quantity', 'total_price',
+            ),
+        )
+
+    def test_order_status_history_inline_permissions_are_read_only(self):
+        inline = OrderStatusHistoryInline(Order, admin.site)
+
+        self.assertFalse(inline.has_add_permission(request=None, obj=self.order))
+        self.assertFalse(inline.has_change_permission(request=None, obj=self.order))
+        self.assertFalse(inline.has_delete_permission(request=None, obj=self.order))
 
     def test_order_item_admin_is_read_only(self):
         item = self.order.items.get()

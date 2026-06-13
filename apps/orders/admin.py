@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 
 from .models import (
@@ -11,20 +11,50 @@ from .models import (
 from .services import OrderStatusService
 
 
+class OrderAdminForm(forms.ModelForm):
+    class Meta:
+        model = Order
+        fields = '__all__'
+
+    def clean_status(self):
+        status = self.cleaned_data['status']
+        if not self.instance.pk or status == self.instance.status:
+            return status
+
+        old_status = self.instance.status
+        if status == Order.Status.CANCELLED:
+            if old_status not in OrderStatusService.cancellable_statuses:
+                raise ValidationError(f'Нельзя отменить заказ из статуса {old_status}.')
+            return status
+        if status == Order.Status.PAID:
+            if old_status not in {Order.Status.NEW, Order.Status.WAITING_PAYMENT, Order.Status.PAID}:
+                raise ValidationError(f'Нельзя отметить оплаченным заказ из статуса {old_status}.')
+            return status
+        if status not in OrderStatusService.allowed_transitions.get(old_status, set()):
+            raise ValidationError(f'Недопустимый переход статуса {old_status} -> {status}.')
+        return status
+
+
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
     fields = (
-        'product_name', 'sku', 'size_name', 'color_name',
+        'product_name', 'product_slug', 'sku', 'size_name', 'color_name',
         'unit_price', 'quantity', 'total_price',
     )
     readonly_fields = (
-        'product_name', 'sku', 'size_name', 'color_name',
+        'product_name', 'product_slug', 'sku', 'size_name', 'color_name',
         'unit_price', 'quantity', 'total_price',
     )
     can_delete = False
 
     def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False
 
 
@@ -47,24 +77,31 @@ class OrderStatusHistoryInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
+    form = OrderAdminForm
     list_display = (
-        'order_number', 'user', 'customer_name', 'phone', 'city',
-        'total_amount', 'discount_amount', 'delivery_price', 'status', 'payment_status',
-        'delivery_method', 'created_at',
+        'order_number', 'customer_name', 'phone', 'email', 'city',
+        'total_amount', 'status', 'payment_status',
+        'delivery_display', 'created_at',
     )
     search_fields = (
-        'order_number', 'customer_name', 'phone', 'email',
+        'order_number', 'phone', 'email', 'customer_name',
         'items__sku', 'items__product_name',
     )
-    list_filter = ('status', 'payment_status', 'delivery_method_ref', 'delivery_method', 'city', 'created_at')
+    list_filter = ('status', 'payment_status', 'delivery_method', 'city', 'created_at')
     readonly_fields = (
         'order_number', 'delivery_method_code', 'delivery_method_name',
-        'items_total', 'delivery_price', 'delivery_requires_manager_calculation',
-        'delivery_price_is_final', 'promo_code', 'promo_code_text',
-        'discount_amount', 'total_amount', 'created_at', 'updated_at',
+        'items_total', 'discount_amount', 'delivery_price',
+        'delivery_requires_manager_calculation', 'delivery_price_is_final',
+        'promo_code', 'promo_code_text', 'total_amount', 'created_at', 'updated_at',
     )
     ordering = ('-created_at',)
     inlines = [OrderItemInline, OrderStatusHistoryInline]
+    actions = (
+        'mark_as_processing',
+        'mark_as_shipped',
+        'mark_as_completed',
+        'cancel_selected_orders',
+    )
 
     def get_queryset(self, request):
         return (
@@ -72,6 +109,10 @@ class OrderAdmin(admin.ModelAdmin):
             .select_related('user', 'delivery_method_ref', 'promo_code')
             .prefetch_related('items', 'status_history')
         )
+
+    @admin.display(description='способ доставки', ordering='delivery_method')
+    def delivery_display(self, obj):
+        return obj.delivery_method_name or obj.get_delivery_method_display()
 
     def save_model(self, request, obj, form, change):
         requested_status = obj.status
@@ -85,30 +126,58 @@ class OrderAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
         try:
-            if requested_status == Order.Status.CANCELLED:
-                updated_order = OrderStatusService.cancel_order(
-                    persisted_order,
-                    changed_by=request.user,
-                    comment='Статус изменён через Django Admin',
-                )
-            elif requested_status == Order.Status.PAID:
-                updated_order = OrderStatusService.mark_paid(
-                    persisted_order,
-                    changed_by=request.user,
-                    comment='Статус изменён через Django Admin',
-                )
-            else:
-                updated_order = OrderStatusService.change_status(
-                    persisted_order,
-                    requested_status,
-                    changed_by=request.user,
-                    comment='Статус изменён через Django Admin',
-                )
+            updated_order = self._change_order_status(
+                persisted_order,
+                requested_status,
+                request.user,
+                comment=obj.manager_comment or 'Статус изменён через Django Admin',
+            )
         except ValidationError as exc:
             obj.status = persisted_order.status
             raise exc
         obj.status = updated_order.status
         obj.payment_status = updated_order.payment_status
+
+    @staticmethod
+    def _change_order_status(order, status, user, comment=''):
+        if status == Order.Status.CANCELLED:
+            return OrderStatusService.cancel_order(order, changed_by=user, comment=comment)
+        if status == Order.Status.PAID:
+            return OrderStatusService.mark_paid(order, changed_by=user, comment=comment)
+        return OrderStatusService.change_status(order, status, changed_by=user, comment=comment)
+
+    def _bulk_change_status(self, request, queryset, status):
+        changed = 0
+        for order in queryset:
+            try:
+                self._change_order_status(
+                    order,
+                    status,
+                    request.user,
+                    comment='Статус изменён через Django Admin',
+                )
+            except ValidationError as exc:
+                self.message_user(request, f'{order.order_number}: {exc}', level=messages.ERROR)
+            else:
+                changed += 1
+        if changed:
+            self.message_user(request, f'Обновлено заказов: {changed}.', level=messages.SUCCESS)
+
+    @admin.action(description='Перевести выбранные заказы в обработку')
+    def mark_as_processing(self, request, queryset):
+        self._bulk_change_status(request, queryset, Order.Status.PROCESSING)
+
+    @admin.action(description='Отметить выбранные заказы отправленными')
+    def mark_as_shipped(self, request, queryset):
+        self._bulk_change_status(request, queryset, Order.Status.SHIPPED)
+
+    @admin.action(description='Отметить выбранные заказы завершёнными')
+    def mark_as_completed(self, request, queryset):
+        self._bulk_change_status(request, queryset, Order.Status.COMPLETED)
+
+    @admin.action(description='Отменить выбранные заказы')
+    def cancel_selected_orders(self, request, queryset):
+        self._bulk_change_status(request, queryset, Order.Status.CANCELLED)
 
 
 @admin.register(OrderItem)

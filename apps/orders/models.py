@@ -105,6 +105,7 @@ class Order(models.Model):
         default=PaymentStatus.UNPAID,
     )
     comment = models.TextField(blank=True)
+    manager_comment = models.TextField(_('комментарий менеджера'), blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
