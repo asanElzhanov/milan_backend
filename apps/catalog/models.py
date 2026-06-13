@@ -485,6 +485,81 @@ class StockMovement(models.Model):
         return f'{self.variant.sku} | {self.operation_type} | {self.quantity}'
 
 
+class ImportJob(models.Model):
+    """History entry for an uploaded product CSV import."""
+    class Status(models.TextChoices):
+        PENDING = 'pending', _('Ожидает обработки')
+        PROCESSING = 'processing', _('В обработке')
+        COMPLETED = 'completed', _('Завершён')
+        COMPLETED_WITH_ERRORS = 'completed_with_errors', _('Завершён с ошибками')
+        FAILED = 'failed', _('Ошибка')
+
+    file = models.FileField(_('CSV файл'), upload_to='catalog/imports/%Y/%m/%d/')
+    status = models.CharField(
+        _('статус'),
+        max_length=32,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='catalog_import_jobs',
+        verbose_name=_('загрузил'),
+    )
+    total_count = models.PositiveIntegerField(_('всего строк'), default=0)
+    success_count = models.PositiveIntegerField(_('успешно'), default=0)
+    failed_count = models.PositiveIntegerField(_('с ошибками'), default=0)
+    error_report = models.JSONField(_('отчёт об ошибках'), default=list, blank=True)
+    error_message = models.CharField(_('фатальная ошибка'), max_length=500, blank=True)
+    started_at = models.DateTimeField(_('начата'), null=True, blank=True)
+    finished_at = models.DateTimeField(_('завершена'), null=True, blank=True)
+    created_at = models.DateTimeField(_('создана'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('обновлена'), auto_now=True)
+
+    class Meta:
+        verbose_name = _('импорт товаров')
+        verbose_name_plural = _('импорты товаров')
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['created_by']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        return f'Product import #{self.pk or "new"} ({self.status})'
+
+
+class ImportJobError(models.Model):
+    """Row-level error captured during product CSV import processing."""
+    import_job = models.ForeignKey(
+        ImportJob,
+        on_delete=models.CASCADE,
+        related_name='errors',
+        verbose_name=_('импорт'),
+    )
+    row_number = models.PositiveIntegerField(_('номер строки'))
+    row_data = models.JSONField(_('данные строки'), default=dict, blank=True)
+    error_message = models.TextField(_('ошибка'))
+    field_errors = models.JSONField(_('ошибки полей'), default=dict, blank=True)
+    created_at = models.DateTimeField(_('создана'), auto_now_add=True)
+
+    class Meta:
+        verbose_name = _('ошибка импорта товаров')
+        verbose_name_plural = _('ошибки импорта товаров')
+        ordering = ['import_job', 'row_number', 'id']
+        indexes = [
+            models.Index(fields=['import_job']),
+            models.Index(fields=['row_number']),
+        ]
+
+    def __str__(self):
+        return f'Import #{self.import_job_id} row {self.row_number}'
+
+
 class Review(models.Model):
     class Status(models.TextChoices):
         PENDING = 'pending', _('На модерации')
