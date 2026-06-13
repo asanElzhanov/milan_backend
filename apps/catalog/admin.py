@@ -1,6 +1,9 @@
-from django.contrib import admin
+from django import forms
+from django.contrib import admin, messages
 from django.db import models
 from django.db.models import Exists, OuterRef
+from django.urls import reverse
+from django.utils.html import format_html
 from mptt.admin import MPTTModelAdmin
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
@@ -8,6 +11,20 @@ from .models import (
     ImportJob, ImportJobError,
 )
 from .services import ReviewModerationService
+
+
+class ReviewAdminForm(forms.ModelForm):
+    class Meta:
+        model = Review
+        fields = '__all__'
+
+    def clean_status(self):
+        status = self.cleaned_data['status']
+        if not self.instance.pk or status == self.instance.status:
+            return status
+        if status not in {Review.Status.PUBLISHED, Review.Status.REJECTED, Review.Status.HIDDEN}:
+            raise forms.ValidationError('Этот статус нельзя установить из админки.')
+        return status
 
 
 class ProductSaleFilter(admin.SimpleListFilter):
@@ -287,12 +304,13 @@ class ProductMediaAdmin(admin.ModelAdmin):
 
 @admin.register(Review)
 class ReviewAdmin(admin.ModelAdmin):
+    form = ReviewAdminForm
     list_display = (
-        'product', 'user', 'order', 'rating', 'status',
+        'id', 'product_link', 'user_link', 'order_link', 'rating', 'status', 'short_text',
         'created_at', 'moderated_by', 'moderated_at',
     )
     list_filter = (
-        'status', 'rating', 'created_at',
+        'status', 'rating', 'created_at', 'moderated_at',
     )
     search_fields = (
         'product__name', 'product__slug',
@@ -317,17 +335,51 @@ class ReviewAdmin(admin.ModelAdmin):
         }),
     )
 
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'product', 'user', 'order', 'moderated_by',
+        )
+
     def save_model(self, request, obj, form, change):
         if change and 'status' in form.changed_data:
             persisted_review = Review.objects.get(pk=obj.pk)
             service = self._moderation_service(obj.status)
             if service:
-                service(persisted_review, request.user, comment=obj.moderation_comment)
+                try:
+                    service(persisted_review, request.user, comment=obj.moderation_comment)
+                except Exception as exc:
+                    self.message_user(
+                        request,
+                        f'Не удалось изменить статус отзыва #{persisted_review.pk}: {exc}',
+                        level=messages.ERROR,
+                    )
                 return
         super().save_model(request, obj, form, change)
 
     def has_add_permission(self, request):
         return False
+
+    @admin.display(description='текст')
+    def short_text(self, obj):
+        text = obj.text or ''
+        if len(text) <= 100:
+            return text
+        return f'{text[:100]}...'
+
+    @admin.display(description='товар', ordering='product__name')
+    def product_link(self, obj):
+        url = reverse('admin:catalog_product_change', args=[obj.product_id])
+        return format_html('<a href="{}">{}</a>', url, obj.product)
+
+    @admin.display(description='пользователь', ordering='user__email')
+    def user_link(self, obj):
+        url = reverse('admin:accounts_user_change', args=[obj.user_id])
+        return format_html('<a href="{}">{}</a>', url, obj.user)
+
+    @admin.display(description='заказ', ordering='order__created_at')
+    def order_link(self, obj):
+        url = reverse('admin:orders_order_change', args=[obj.order_id])
+        return format_html('<a href="{}">{}</a>', url, obj.order)
 
     @staticmethod
     def _moderation_service(status):
@@ -339,18 +391,31 @@ class ReviewAdmin(admin.ModelAdmin):
 
     @admin.action(description='Опубликовать выбранные отзывы')
     def publish_reviews(self, request, queryset):
-        for review in queryset:
-            ReviewModerationService.publish_review(review, request.user)
+        self._moderate_reviews(request, queryset, ReviewModerationService.publish_review)
 
     @admin.action(description='Отклонить выбранные отзывы')
     def reject_reviews(self, request, queryset):
-        for review in queryset:
-            ReviewModerationService.reject_review(review, request.user)
+        self._moderate_reviews(request, queryset, ReviewModerationService.reject_review)
 
     @admin.action(description='Скрыть выбранные отзывы')
     def hide_reviews(self, request, queryset):
+        self._moderate_reviews(request, queryset, ReviewModerationService.hide_review)
+
+    def _moderate_reviews(self, request, queryset, service):
+        moderated = 0
         for review in queryset:
-            ReviewModerationService.hide_review(review, request.user)
+            try:
+                service(review, request.user)
+            except Exception as exc:
+                self.message_user(
+                    request,
+                    f'Не удалось изменить статус отзыва #{review.pk}: {exc}',
+                    level=messages.ERROR,
+                )
+            else:
+                moderated += 1
+        if moderated:
+            self.message_user(request, f'Обновлено отзывов: {moderated}.', level=messages.SUCCESS)
 
 
 @admin.register(Category)
