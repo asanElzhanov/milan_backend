@@ -686,6 +686,9 @@ class CheckoutService:
                 old_status=None,
                 new_status=Order.Status.NEW,
             )
+            from apps.notifications.services import EmailNotificationService
+
+            EmailNotificationService.schedule_order_created_email(order)
 
             return order
 
@@ -804,6 +807,13 @@ class OrderStatusService:
                 changed_by=changed_by,
                 comment=comment,
             )
+            from apps.notifications.services import EmailNotificationService
+
+            EmailNotificationService.schedule_order_status_changed_email(
+                locked_order,
+                old_status=old_status,
+                new_status=new_status,
+            )
             return locked_order
 
     @classmethod
@@ -829,6 +839,9 @@ class OrderStatusService:
                 changed_by=changed_by,
                 comment=comment,
             )
+            from apps.notifications.services import EmailNotificationService
+
+            EmailNotificationService.schedule_order_cancelled_email(locked_order)
             return locked_order
 
     @classmethod
@@ -856,6 +869,9 @@ class OrderStatusService:
                     changed_by=changed_by,
                     comment=comment,
                 )
+                from apps.notifications.services import EmailNotificationService
+
+                EmailNotificationService.schedule_order_paid_email(locked_order)
             return locked_order
 
     @classmethod

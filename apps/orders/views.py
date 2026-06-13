@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.catalog.models import ProductImage
+from apps.notifications.tasks import send_order_confirmation_email
 
 from .models import DeliveryMethod, Order
 from .serializers import (
@@ -21,7 +22,6 @@ from .serializers import (
     OrderSerializer,
 )
 from .services import CartError, CartNotFoundError, CartService, CheckoutError, PromoCodeError
-from apps.notifications.tasks import send_order_confirmation_email
 
 
 OrderDetailResponseSerializer = inline_serializer(
@@ -114,9 +114,6 @@ def checkout_response(request):
     except (CartError, CheckoutError) as exc:
         return cart_error_response(exc)
     order = load_order_for_response(order)
-
-    # Отправить email подтверждение через Celery
-    send_order_confirmation_email.delay(order.id)
 
     return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
 

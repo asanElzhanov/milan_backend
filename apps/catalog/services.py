@@ -105,6 +105,12 @@ class ReviewModerationService:
                 'moderation_comment', 'updated_at',
             ])
             ReviewRatingService.recalculate_product_rating(locked_review.product)
+            from apps.notifications.services import EmailNotificationService
+
+            if status == Review.Status.PUBLISHED:
+                EmailNotificationService.schedule_review_published_email(locked_review)
+            elif status == Review.Status.REJECTED:
+                EmailNotificationService.schedule_review_rejected_email(locked_review)
             return locked_review
 
     @staticmethod

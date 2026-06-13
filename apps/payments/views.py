@@ -148,10 +148,7 @@ class StripeWebhookView(APIView):
         payment.provider_data = raw_data
         payment.save()
 
-        order = OrderStatusService.mark_paid(payment.order)
-
-        from apps.notifications.tasks import send_order_paid_notification
-        send_order_paid_notification.delay(order.id)
+        OrderStatusService.mark_paid(payment.order)
 
     def _handle_payment_failed(self, provider_id):
         Payment.objects.filter(provider_payment_id=provider_id).update(
@@ -225,10 +222,7 @@ class KaspiWebhookView(APIView):
             if payment:
                 payment.status = Payment.Status.SUCCESS
                 payment.save()
-            order = OrderStatusService.mark_paid(order)
-
-            from apps.notifications.tasks import send_order_paid_notification
-            send_order_paid_notification.delay(order.id)
+            OrderStatusService.mark_paid(order)
 
         elif tx_status == 'failed':
             if payment:
