@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Avg, Count
@@ -148,7 +149,7 @@ class ProductReviewService:
         with transaction.atomic():
             cls.can_review_product(user, product, order)
             try:
-                return Review.objects.create(
+                review = Review.objects.create(
                     product=product,
                     user=user,
                     order=order,
@@ -161,6 +162,10 @@ class ProductReviewService:
                 raise DuplicateReviewError(
                     'Вы уже оставили отзыв на этот товар в рамках этого заказа.'
                 ) from exc
+            from apps.notifications.services import NotificationService
+
+            transaction.on_commit(lambda: NotificationService.notify_new_review(review))
+            return review
 
     @staticmethod
     def _validate_user(user):
@@ -276,13 +281,15 @@ class StockService:
 
             locked_variant.stock_quantity = new_quantity
             locked_variant.save(update_fields=['stock_quantity', 'updated_at'])
-            return StockMovement.objects.create(
+            movement = StockMovement.objects.create(
                 variant=locked_variant,
                 quantity=movement_quantity,
                 operation_type=StockMovement.OperationType.MANUAL_ADJUSTMENT,
                 user=user,
                 comment=comment,
             )
+            cls._notify_low_stock_if_crossed(locked_variant, current_quantity, new_quantity)
+            return movement
 
     @classmethod
     def _change_stock(
@@ -306,15 +313,18 @@ class StockService:
             if new_quantity < 0:
                 raise NotEnoughStockError('Остаток не может быть отрицательным.')
 
+            old_quantity = locked_variant.stock_quantity
             locked_variant.stock_quantity = new_quantity
             locked_variant.save(update_fields=['stock_quantity', 'updated_at'])
-            return StockMovement.objects.create(
+            movement = StockMovement.objects.create(
                 variant=locked_variant,
                 quantity=quantity,
                 operation_type=operation_type,
                 user=user,
                 comment=comment,
             )
+            cls._notify_low_stock_if_crossed(locked_variant, old_quantity, new_quantity)
+            return movement
 
     @classmethod
     def _lock_variant(cls, variant):
@@ -356,3 +366,13 @@ class StockService:
     @staticmethod
     def _has_available_stock(variant, quantity):
         return variant.is_active and variant.stock_quantity >= quantity
+
+    @staticmethod
+    def _notify_low_stock_if_crossed(variant, old_quantity, new_quantity):
+        threshold = getattr(settings, 'LOW_STOCK_THRESHOLD', 3)
+        if threshold < 0:
+            return
+        if old_quantity > threshold and new_quantity <= threshold:
+            from apps.notifications.services import NotificationService
+
+            transaction.on_commit(lambda: NotificationService.notify_low_stock(variant))

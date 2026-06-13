@@ -48,6 +48,9 @@ def process_product_import(self, import_job_id):
     except Exception:
         logger.exception('Product import job %s failed', import_job_id)
         import_job.refresh_from_db()
+        from apps.notifications.services import NotificationService
+
+        NotificationService.notify_import_error(import_job, import_job.error_message)
         return {
             'status': 'failed',
             'import_job_id': import_job_id,
@@ -55,6 +58,13 @@ def process_product_import(self, import_job_id):
         }
 
     import_job.refresh_from_db()
+    if import_job.status == ImportJob.Status.COMPLETED_WITH_ERRORS:
+        from apps.notifications.services import NotificationService
+
+        NotificationService.notify_import_error(
+            import_job,
+            f'{import_job.failed_count} строк завершились с ошибками.',
+        )
     return {
         'status': 'processed',
         'import_job_id': import_job_id,

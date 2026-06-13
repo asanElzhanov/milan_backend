@@ -687,8 +687,10 @@ class CheckoutService:
                 new_status=Order.Status.NEW,
             )
             from apps.notifications.services import EmailNotificationService
+            from apps.notifications.services import NotificationService
 
             EmailNotificationService.schedule_order_created_email(order)
+            transaction.on_commit(lambda: NotificationService.notify_new_order(order))
 
             return order
 
@@ -872,8 +874,10 @@ class OrderStatusService:
                 )
             if old_payment_status != Order.PaymentStatus.PAID:
                 from apps.notifications.services import EmailNotificationService
+                from apps.notifications.services import NotificationService
 
                 EmailNotificationService.schedule_order_paid_email(locked_order)
+                transaction.on_commit(lambda: NotificationService.notify_payment_success(locked_order))
             return locked_order
 
     @classmethod

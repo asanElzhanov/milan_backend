@@ -199,8 +199,9 @@ class EmailNotificationTaskTests(TestCase):
                     delivery_method=Order.DeliveryMethod.COURIER,
                 )
                 delay.assert_not_called()
-            self.assertEqual(len(callbacks), 1)
-            callbacks[0]()
+            self.assertGreaterEqual(len(callbacks), 1)
+            for callback in callbacks:
+                callback()
 
         delay.assert_called_once_with(order.pk)
 
@@ -211,8 +212,9 @@ class EmailNotificationTaskTests(TestCase):
             with self.captureOnCommitCallbacks(execute=False) as callbacks:
                 OrderStatusService.mark_paid(order)
                 delay.assert_not_called()
-            self.assertEqual(len(callbacks), 1)
-            callbacks[0]()
+            self.assertGreaterEqual(len(callbacks), 1)
+            for callback in callbacks:
+                callback()
 
         delay.assert_called_once_with(order.pk)
 
@@ -222,8 +224,9 @@ class EmailNotificationTaskTests(TestCase):
         with patch('apps.notifications.tasks.send_order_paid_email.delay') as delay:
             with self.captureOnCommitCallbacks(execute=False) as callbacks:
                 OrderStatusService.mark_paid(order)
-            self.assertEqual(len(callbacks), 1)
-            callbacks[0]()
+            self.assertGreaterEqual(len(callbacks), 1)
+            for callback in callbacks:
+                callback()
 
         delay.assert_called_once_with(order.pk)
 

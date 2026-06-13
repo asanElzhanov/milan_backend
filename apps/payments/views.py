@@ -2,6 +2,7 @@ import stripe
 import hashlib
 import hmac
 from django.conf import settings
+from django.db import transaction
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
@@ -151,9 +152,22 @@ class StripeWebhookView(APIView):
         OrderStatusService.mark_paid(payment.order)
 
     def _handle_payment_failed(self, provider_id):
-        Payment.objects.filter(provider_payment_id=provider_id).update(
-            status=Payment.Status.FAILED
-        )
+        payment = Payment.objects.select_related('order').filter(provider_payment_id=provider_id).first()
+        if not payment:
+            return
+        old_status = payment.status
+        payment.status = Payment.Status.FAILED
+        payment.save(update_fields=['status', 'updated_at'])
+        if old_status != Payment.Status.FAILED:
+            from apps.notifications.services import NotificationService
+
+            transaction.on_commit(
+                lambda: NotificationService.notify_payment_error(
+                    order=payment.order,
+                    provider=payment.provider,
+                    error_message='Stripe payment failed.',
+                )
+            )
 
 
 class KaspiCreateView(APIView):
@@ -226,7 +240,18 @@ class KaspiWebhookView(APIView):
 
         elif tx_status == 'failed':
             if payment:
+                old_status = payment.status
                 payment.status = Payment.Status.FAILED
-                payment.save()
+                payment.save(update_fields=['status', 'updated_at'])
+                if old_status != Payment.Status.FAILED:
+                    from apps.notifications.services import NotificationService
+
+                    transaction.on_commit(
+                        lambda: NotificationService.notify_payment_error(
+                            order=order,
+                            provider=Payment.Provider.KASPI,
+                            error_message='Kaspi payment failed.',
+                        )
+                    )
 
         return Response({'status': 'ok'})

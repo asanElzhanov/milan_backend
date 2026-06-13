@@ -221,4 +221,7 @@ KASPI_SECRET = config('KASPI_SECRET', default='')
 # --- Phone numbers ---
 PHONENUMBER_DEFAULT_REGION = 'KZ'
 
+# --- Notifications ---
+LOW_STOCK_THRESHOLD = config('LOW_STOCK_THRESHOLD', default=3, cast=int)
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

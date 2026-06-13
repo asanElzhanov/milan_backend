@@ -66,6 +66,94 @@ class NotificationService:
             for user in cls.get_admin_recipients()
         ]
 
+    @classmethod
+    def notify_staff(cls, title, message, event_type):
+        notifications = []
+        seen_user_ids = set()
+        for user in list(cls.get_manager_recipients()) + list(cls.get_admin_recipients()):
+            if user.pk in seen_user_ids:
+                continue
+            seen_user_ids.add(user.pk)
+            notifications.append(cls.notify_user(user, title, message, event_type))
+        return notifications
+
+    @classmethod
+    def notify_new_order(cls, order):
+        return cls.notify_staff(
+            title=f'Новый заказ #{order.order_number}',
+            message=(
+                f'Создан новый заказ #{order.order_number}.\n'
+                f'Покупатель: {order.customer_name}\n'
+                f'Сумма: {order.total_amount} ₸'
+            ),
+            event_type=Notification.EventType.ORDER_CREATED,
+        )
+
+    @classmethod
+    def notify_payment_success(cls, order):
+        return cls.notify_staff(
+            title=f'Успешная оплата #{order.order_number}',
+            message=(
+                f'Оплата заказа #{order.order_number} прошла успешно.\n'
+                f'Сумма: {order.total_amount} ₸\n'
+                f'Статус оплаты: {order.get_payment_status_display()}'
+            ),
+            event_type=Notification.EventType.PAYMENT_SUCCESS,
+        )
+
+    @classmethod
+    def notify_payment_error(cls, *, order=None, provider='', error_message=''):
+        order_number = getattr(order, 'order_number', '') or 'неизвестен'
+        safe_message = (error_message or 'Платёж не был завершён успешно.')[:300]
+        provider_text = provider or 'unknown'
+        return cls.notify_staff(
+            title=f'Ошибка оплаты #{order_number}',
+            message=(
+                f'Ошибка оплаты заказа #{order_number}.\n'
+                f'Провайдер: {provider_text}\n'
+                f'Детали: {safe_message}'
+            ),
+            event_type=Notification.EventType.PAYMENT_ERROR,
+        )
+
+    @classmethod
+    def notify_new_review(cls, review):
+        return cls.notify_staff(
+            title='Новый отзыв на модерации',
+            message=(
+                f'Новый отзыв на товар "{review.product.name}".\n'
+                f'Пользователь: {review.user.email}\n'
+                f'Оценка: {review.rating}'
+            ),
+            event_type=Notification.EventType.REVIEW_CREATED,
+        )
+
+    @classmethod
+    def notify_low_stock(cls, variant):
+        return cls.notify_staff(
+            title=f'Низкий остаток: {variant.sku}',
+            message=(
+                f'Остаток варианта {variant.sku} ниже порога.\n'
+                f'Товар: {variant.product.name}\n'
+                f'Текущий остаток: {variant.stock_quantity}'
+            ),
+            event_type=Notification.EventType.LOW_STOCK,
+        )
+
+    @classmethod
+    def notify_import_error(cls, import_job, error_message=''):
+        source = getattr(import_job.file, 'name', '') or f'Import #{import_job.pk}'
+        safe_message = (error_message or import_job.error_message or 'Импорт завершился с ошибками.')[:300]
+        return cls.notify_staff(
+            title=f'Ошибка импорта #{import_job.pk}',
+            message=(
+                f'Импорт товаров завершился с ошибкой.\n'
+                f'Источник: {source}\n'
+                f'Детали: {safe_message}'
+            ),
+            event_type=Notification.EventType.IMPORT_ERROR,
+        )
+
     @staticmethod
     def get_manager_recipients():
         user_model = get_user_model()
