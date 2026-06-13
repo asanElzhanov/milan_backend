@@ -2,6 +2,7 @@ import shutil
 import tempfile
 from unittest.mock import patch
 
+from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.utils import timezone
@@ -56,6 +57,9 @@ class ProductImportApiTests(APITestCase):
     def errors_url(self, import_job):
         return f'{self.imports_url}{import_job.id}/errors/'
 
+    def error_report_url(self, import_job):
+        return f'{self.imports_url}{import_job.id}/error-report/'
+
     def make_job(self, **kwargs):
         defaults = {
             'file': self.csv_file(),
@@ -102,6 +106,12 @@ class ProductImportApiTests(APITestCase):
 
     def test_customer_cannot_access_imports(self):
         import_job = self.make_job()
+        report_path = import_job.file.storage.save(
+            'catalog/imports/error_reports/customer-forbidden.csv',
+            ContentFile(b'row_number,error_message\n2,Invalid\n'),
+        )
+        import_job.error_report = {'file': report_path, 'format': 'csv'}
+        import_job.save(update_fields=['error_report'])
         self.client.force_authenticate(self.customer)
 
         list_response = self.client.get(self.imports_url)
@@ -112,11 +122,13 @@ class ProductImportApiTests(APITestCase):
         )
         detail_response = self.client.get(self.detail_url(import_job))
         errors_response = self.client.get(self.errors_url(import_job))
+        report_response = self.client.get(self.error_report_url(import_job))
 
         self.assertEqual(list_response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(upload_response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(detail_response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(errors_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(report_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_upload_requires_file(self):
         self.authenticate_manager()
@@ -221,3 +233,34 @@ class ProductImportApiTests(APITestCase):
         self.assertEqual(item['row_number'], 2)
         self.assertEqual(item['row_data']['sku'], 'BAD-SKU')
         self.assertEqual(item['field_errors']['price'], 'invalid')
+
+    def test_manager_can_download_error_report(self):
+        self.authenticate_manager()
+        import_job = self.make_job(status=ImportJob.Status.COMPLETED_WITH_ERRORS)
+        report_path = import_job.file.storage.save(
+            'catalog/imports/error_reports/manual-errors.csv',
+            ContentFile(
+                'row_number,error_message,sku\n2,Invalid price,BAD-SKU\n'.encode('utf-8')
+            ),
+        )
+        import_job.error_report = {
+            'file': report_path,
+            'format': 'csv',
+        }
+        import_job.save(update_fields=['error_report'])
+
+        response = self.client.get(self.error_report_url(import_job))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'text/csv')
+        content = b''.join(response.streaming_content).decode('utf-8')
+        self.assertIn('row_number,error_message,sku', content)
+        self.assertIn('2,Invalid price,BAD-SKU', content)
+
+    def test_error_report_download_returns_404_when_missing(self):
+        self.authenticate_manager()
+        import_job = self.make_job(status=ImportJob.Status.COMPLETED)
+
+        response = self.client.get(self.error_report_url(import_job))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

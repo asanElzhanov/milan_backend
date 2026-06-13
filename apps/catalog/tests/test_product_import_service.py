@@ -1,3 +1,5 @@
+import csv
+import io
 from decimal import Decimal
 import shutil
 import tempfile
@@ -173,3 +175,24 @@ class ProductImportServiceTests(TestCase):
         self.assertTrue(ProductVariant.objects.filter(sku='VALID-SKU').exists())
         self.assertFalse(ProductVariant.objects.filter(sku='INVALID-SKU').exists())
         self.assertEqual(ImportJobError.objects.filter(import_job=job).count(), 1)
+        self.assertIsInstance(job.error_report, dict)
+        self.assertEqual(job.error_report['format'], 'csv')
+        with job.file.storage.open(job.error_report['file'], 'rb') as report_file:
+            report = report_file.read().decode('utf-8-sig')
+        rows = list(csv.DictReader(io.StringIO(report)))
+        self.assertEqual(rows[0]['row_number'], '3')
+        self.assertEqual(rows[0]['error_message'], 'Ошибка валидации строки.')
+        self.assertEqual(rows[0]['sku'], 'INVALID-SKU')
+
+    def test_process_import_without_errors_does_not_generate_error_report(self):
+        content = (
+            'product_name,category_slug,price,sku,stock_quantity\n'
+            'Valid Product,shoes,100.00,VALID-SKU,4\n'
+        )
+        job = self.make_job(content)
+
+        ProductImportService.process_import(job)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, ImportJob.Status.COMPLETED)
+        self.assertIsNone(job.error_report)

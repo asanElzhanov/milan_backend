@@ -512,7 +512,7 @@ class ImportJob(models.Model):
     total_count = models.PositiveIntegerField(_('всего строк'), default=0)
     success_count = models.PositiveIntegerField(_('успешно'), default=0)
     failed_count = models.PositiveIntegerField(_('с ошибками'), default=0)
-    error_report = models.JSONField(_('отчёт об ошибках'), default=list, blank=True)
+    error_report = models.JSONField(_('отчёт об ошибках'), null=True, blank=True)
     error_message = models.CharField(_('фатальная ошибка'), max_length=500, blank=True)
     started_at = models.DateTimeField(_('начата'), null=True, blank=True)
     finished_at = models.DateTimeField(_('завершена'), null=True, blank=True)

@@ -1,10 +1,15 @@
 import csv
 import io
+import json
+import logging
+import os
+import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
+from django.core.files import File
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.text import slugify
@@ -14,6 +19,9 @@ from .models import (
     Product, ProductVariant, Size,
 )
 from .services import InvalidStockQuantityError, StockService
+
+
+logger = logging.getLogger(__name__)
 
 
 class ProductImportError(Exception):
@@ -253,23 +261,17 @@ class ProductImportService:
 
                 success_count = 0
                 failed_count = 0
-                error_report = []
                 for row_number, row in enumerate(rows, start=2):
                     result = cls.process_row(row, row_number, import_job)
                     if result.success:
                         success_count += 1
                     else:
                         failed_count += 1
-                        error_report.append({
-                            'row_number': row_number,
-                            'error_message': result.error_message,
-                            'field_errors': result.field_errors,
-                        })
 
             import_job.total_count = success_count + failed_count
             import_job.success_count = success_count
             import_job.failed_count = failed_count
-            import_job.error_report = error_report
+            import_job.error_report = cls._build_error_report(import_job) if failed_count else None
             import_job.status = (
                 ImportJob.Status.COMPLETED_WITH_ERRORS
                 if failed_count
@@ -292,7 +294,6 @@ class ProductImportService:
         return import_job
 
     @classmethod
-    @classmethod
     @contextmanager
     def open_csv(cls, file_obj):
         file_obj.open('rb')
@@ -304,6 +305,75 @@ class ProductImportService:
         finally:
             text_file.close()
             file_obj.close()
+
+    @classmethod
+    def _build_error_report(cls, import_job):
+        try:
+            return cls.generate_error_report(import_job)
+        except Exception:
+            logger.exception('Failed to generate import error report for job %s', import_job.pk)
+            return None
+
+    @classmethod
+    def generate_error_report(cls, import_job):
+        errors = ImportJobError.objects.filter(
+            import_job=import_job,
+        ).order_by('row_number', 'id')
+        if not errors.exists():
+            return None
+
+        row_keys = []
+        seen_keys = set()
+        for error in errors.iterator():
+            for key in error.row_data.keys():
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    row_keys.append(key)
+
+        fieldnames = ['row_number', 'error_message', 'field_errors'] + row_keys
+        tmp_path = None
+        path = f'catalog/imports/error_reports/import-{import_job.pk}-errors.csv'
+        storage = import_job.file.storage
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                newline='',
+                encoding='utf-8-sig',
+                delete=False,
+            ) as tmp:
+                tmp_path = tmp.name
+                writer = csv.DictWriter(tmp, fieldnames=fieldnames)
+                writer.writeheader()
+                for error in errors.iterator():
+                    row = {
+                        'row_number': error.row_number,
+                        'error_message': error.error_message,
+                        'field_errors': json.dumps(error.field_errors, ensure_ascii=False),
+                    }
+                    row.update({
+                        key: error.row_data.get(key, '')
+                        for key in row_keys
+                    })
+                    writer.writerow(row)
+
+            with open(tmp_path, 'rb') as report_file:
+                saved_path = storage.save(path, File(report_file, name=path))
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    logger.exception('Failed to delete temporary import report %s', tmp_path)
+
+        report = {
+            'file': saved_path,
+            'format': 'csv',
+        }
+        try:
+            report['url'] = storage.url(saved_path)
+        except Exception:
+            logger.exception('Failed to build import error report URL for job %s', import_job.pk)
+        return report
 
     @classmethod
     def _create_or_update_product(cls, data):

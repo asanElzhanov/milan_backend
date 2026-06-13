@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models import F, Prefetch
 from django.db import transaction
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
@@ -556,6 +557,37 @@ class ProductImportJobErrorListView(generics.ListAPIView):
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
+
+class ProductImportJobErrorReportView(APIView):
+    permission_classes = [IsManagerOrAdmin]
+
+    @extend_schema(
+        tags=['Catalog / Imports'],
+        summary='Скачать CSV отчёт ошибок импорта товаров',
+        responses={
+            200: OpenApiTypes.BINARY,
+            404: OpenApiResponse(description='Отчёт не найден'),
+        },
+    )
+    def get(self, request, pk):
+        import_job = get_object_or_404(ImportJob, pk=pk)
+        report = import_job.error_report or {}
+        report_path = report.get('file') if isinstance(report, dict) else None
+        if not report_path:
+            raise Http404('Отчёт ошибок не найден.')
+
+        storage = import_job.file.storage
+        if not storage.exists(report_path):
+            raise Http404('Файл отчёта ошибок не найден.')
+
+        filename = report_path.rsplit('/', 1)[-1]
+        return FileResponse(
+            storage.open(report_path, 'rb'),
+            as_attachment=True,
+            filename=filename,
+            content_type='text/csv',
+        )
 
 
 class ProductSimilarView(generics.ListAPIView):
