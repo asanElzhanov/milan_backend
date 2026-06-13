@@ -18,6 +18,7 @@ urlpatterns = [
     # Apps
     path(API_V1 + 'auth/', include('apps.accounts.urls')),
     path(API_V1 + 'catalog/', include('apps.catalog.urls')),
+    path(API_V1 + 'cms/', include('apps.cms.urls')),
     path(API_V1 + 'orders/', include('apps.orders.urls')),
     path(API_V1 + 'payments/', include('apps.payments.urls')),
     path(API_V1 + 'notifications/', include('apps.notifications.urls')),
