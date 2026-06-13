@@ -146,13 +146,35 @@ class StaffNotificationFlowTests(TestCase):
         notifications = self.assert_staff_notified(Notification.EventType.REVIEW_CREATED)
         self.assertTrue(notifications.filter(message__contains=self.product.name).exists())
 
-    def test_low_stock_notification_is_created_only_when_threshold_is_crossed(self):
+    def test_sale_that_crosses_below_threshold_creates_low_stock_notification(self):
         self.variant.stock_quantity = 5
         self.variant.save(update_fields=['stock_quantity'])
 
         with self.captureOnCommitCallbacks(execute=True):
-            StockService.sale(self.variant, 2)
-        self.assert_staff_notified(Notification.EventType.LOW_STOCK)
+            StockService.sale(self.variant, 3)
+
+        notifications = self.assert_staff_notified(Notification.EventType.LOW_STOCK)
+        message = notifications.first().message
+        self.assertIn(self.product.name, message)
+        self.assertIn(self.variant.sku, message)
+        self.assertIn('Текущий остаток: 2', message)
+        self.assertIn('Порог: 3', message)
+
+    def test_sale_that_stays_above_threshold_does_not_create_low_stock_notification(self):
+        self.variant.stock_quantity = 5
+        self.variant.save(update_fields=['stock_quantity'])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            StockService.sale(self.variant, 1)
+
+        self.assertFalse(Notification.objects.filter(event_type=Notification.EventType.LOW_STOCK).exists())
+
+    def test_repeated_operation_below_threshold_does_not_spam_low_stock_notifications(self):
+        self.variant.stock_quantity = 5
+        self.variant.save(update_fields=['stock_quantity'])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            StockService.sale(self.variant, 3)
         initial_count = Notification.objects.filter(event_type=Notification.EventType.LOW_STOCK).count()
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -162,6 +184,16 @@ class StaffNotificationFlowTests(TestCase):
             Notification.objects.filter(event_type=Notification.EventType.LOW_STOCK).count(),
             initial_count,
         )
+
+    def test_manual_adjustment_below_threshold_creates_low_stock_notification(self):
+        self.variant.stock_quantity = 5
+        self.variant.save(update_fields=['stock_quantity'])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            StockService.manual_adjustment(self.variant, 1, user=self.manager, comment='Inventory count')
+
+        notifications = self.assert_staff_notified(Notification.EventType.LOW_STOCK)
+        self.assertTrue(notifications.filter(message__contains='Текущий остаток: 1').exists())
 
     def test_import_error_creates_notification(self):
         import_job = ImportJob.objects.create(
@@ -178,3 +210,26 @@ class StaffNotificationFlowTests(TestCase):
 
         notifications = self.assert_staff_notified(Notification.EventType.IMPORT_ERROR)
         self.assertTrue(notifications.filter(message__contains='Отсутствуют обязательные колонки').exists())
+        self.assertTrue(notifications.filter(message__contains='Создан:').exists())
+
+    def test_import_completed_with_errors_creates_notification(self):
+        import_job = ImportJob.objects.create(
+            file=SimpleUploadedFile(
+                'partial-products.csv',
+                (
+                    'product_name,category_slug,price,sku,stock_quantity\n'
+                    'Valid Import Product,staff-shoes,100.00,VALID-PARTIAL-SKU,5\n'
+                    'Invalid Import Product,missing-category,100.00,INVALID-PARTIAL-SKU,5\n'
+                ).encode('utf-8'),
+                content_type='text/csv',
+            ),
+            created_by=self.manager,
+            status=ImportJob.Status.PENDING,
+        )
+
+        process_product_import.apply(args=(import_job.pk,), throw=True)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.status, ImportJob.Status.COMPLETED_WITH_ERRORS)
+        notifications = self.assert_staff_notified(Notification.EventType.IMPORT_ERROR)
+        self.assertTrue(notifications.filter(message__contains='1 строк завершились с ошибками').exists())

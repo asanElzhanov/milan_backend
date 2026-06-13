@@ -130,12 +130,14 @@ class NotificationService:
 
     @classmethod
     def notify_low_stock(cls, variant):
+        threshold = getattr(settings, 'LOW_STOCK_THRESHOLD', 3)
         return cls.notify_staff(
             title=f'Низкий остаток: {variant.sku}',
             message=(
                 f'Остаток варианта {variant.sku} ниже порога.\n'
                 f'Товар: {variant.product.name}\n'
-                f'Текущий остаток: {variant.stock_quantity}'
+                f'Текущий остаток: {variant.stock_quantity}\n'
+                f'Порог: {threshold}'
             ),
             event_type=Notification.EventType.LOW_STOCK,
         )
@@ -149,6 +151,7 @@ class NotificationService:
             message=(
                 f'Импорт товаров завершился с ошибкой.\n'
                 f'Источник: {source}\n'
+                f'Создан: {import_job.created_at:%Y-%m-%d %H:%M:%S}\n'
                 f'Детали: {safe_message}'
             ),
             event_type=Notification.EventType.IMPORT_ERROR,

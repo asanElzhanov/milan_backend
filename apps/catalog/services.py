@@ -372,7 +372,7 @@ class StockService:
         threshold = getattr(settings, 'LOW_STOCK_THRESHOLD', 3)
         if threshold < 0:
             return
-        if old_quantity > threshold and new_quantity <= threshold:
+        if old_quantity >= threshold and new_quantity < threshold:
             from apps.notifications.services import NotificationService
 
             transaction.on_commit(lambda: NotificationService.notify_low_stock(variant))

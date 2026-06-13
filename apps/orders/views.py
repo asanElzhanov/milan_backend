@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.catalog.models import ProductImage
-from apps.notifications.tasks import send_order_confirmation_email
+from apps.notifications.tasks import send_order_confirmation_email  # noqa: F401
 
 from .models import DeliveryMethod, Order
 from .serializers import (
