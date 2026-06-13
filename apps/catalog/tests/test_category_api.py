@@ -93,3 +93,9 @@ class CategoryAPITests(APITestCase):
         self.assertEqual(response.data['seo_description'], 'Shoes description')
         self.assertEqual(response.data['seo_keywords'], 'shoes,sneakers')
         self.assertIn('children', response.data)
+        self.assertEqual([child['slug'] for child in response.data['children']], ['sneakers'])
+
+    def test_category_detail_does_not_expose_inactive_category(self):
+        response = self.client.get(self.detail_url(self.inactive_root))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

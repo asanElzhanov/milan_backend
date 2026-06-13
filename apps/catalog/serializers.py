@@ -5,10 +5,11 @@ from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 
 from apps.orders.models import Order
+from apps.orders.services import PromoCodeError, PromoCodeService
 
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
-    ProductMedia, ProductVariant, Promo, Review, ReviewImage, Size, StockMovement,
+    ProductMedia, ProductVariant, Review, ReviewImage, Size, StockMovement,
     ImportJob, ImportJobError,
 )
 from .services import ProductReviewService
@@ -606,10 +607,10 @@ class PromoCheckSerializer(serializers.Serializer):
 
     def validate(self, data):
         try:
-            promo = Promo.objects.get(code=data['code'].upper())
-        except Promo.DoesNotExist:
-            raise serializers.ValidationError({'code': 'Промокод не найден'})
-        if not promo.is_valid(data['order_amount']):
-            raise serializers.ValidationError({'code': 'Промокод недействителен или истёк'})
-        data['promo'] = promo
+            promo_code = PromoCodeService.get_active_promo(data['code'])
+            PromoCodeService.validate_promo(promo_code, data['order_amount'])
+        except PromoCodeError as exc:
+            detail = exc.messages[0] if hasattr(exc, 'messages') and exc.messages else str(exc)
+            raise serializers.ValidationError({'code': detail}) from exc
+        data['promo_code'] = promo_code
         return data

@@ -12,10 +12,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import IsManagerOrAdmin
+from apps.orders.services import PromoCodeService
 
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
-    ProductMedia, ProductVariant, Promo, Review, Size, StockMovement,
+    ProductMedia, ProductVariant, Review, Size, StockMovement,
     ImportJob, ImportJobError,
 )
 from .serializers import (
@@ -152,6 +153,14 @@ class CategoryDetailView(CategoryQuerysetMixin, generics.RetrieveAPIView):
     permission_classes = [permissions.AllowAny]
     lookup_field = 'slug'
 
+    def get_queryset(self):
+        return Category.objects.active().order_by('tree_id', 'lft')
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['active'] = True
+        return context
+
     @extend_schema(
         tags=['Catalog / Categories'],
         summary='Категория по slug',
@@ -185,7 +194,7 @@ class BrandDetailView(generics.RetrieveAPIView):
     serializer_class = BrandSerializer
     permission_classes = [permissions.AllowAny]
     lookup_field = 'slug'
-    queryset = Brand.objects.all()
+    queryset = Brand.objects.filter(is_active=True)
 
     @extend_schema(
         tags=['Catalog / Brands'],
@@ -598,10 +607,22 @@ class ProductSimilarView(generics.ListAPIView):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Product.objects.none()
-        product = Product.objects.get(slug=self.kwargs['slug'])
-        return Product.objects.filter(
-            category=product.category, is_active=True
-        ).exclude(pk=product.pk).order_by('-orders_count')[:8]
+        product = get_object_or_404(
+            Product.objects.filter(is_active=True),
+            slug=self.kwargs['slug'],
+        )
+        queryset = with_product_list_annotations(
+            Product.objects.filter(category=product.category, is_active=True)
+            .select_related('category', 'brand')
+            .exclude(pk=product.pk)
+        )
+        return queryset.prefetch_related(
+            Prefetch('images', queryset=ProductImage.objects.order_by('sort_order', 'id')),
+            Prefetch(
+                'variants',
+                queryset=ProductVariant.objects.filter(is_active=True).select_related('color', 'size'),
+            ),
+        ).order_by('-orders_count')[:8]
 
     @extend_schema(
         tags=['Catalog / Products'],
@@ -691,13 +712,13 @@ class PromoCheckView(APIView):
     def post(self, request):
         serializer = PromoCheckSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        promo = serializer.validated_data['promo']
+        promo_code = serializer.validated_data['promo_code']
         amount = serializer.validated_data['order_amount']
-        discount = promo.calculate_discount(amount)
+        discount = PromoCodeService.calculate_discount(promo_code, amount)
         return Response({
-            'code': promo.code,
-            'discount_type': promo.discount_type,
-            'discount_value': str(promo.discount_value),
+            'code': promo_code.code,
+            'discount_type': promo_code.discount_type,
+            'discount_value': str(promo_code.value),
             'discount_amount': str(discount),
             'final_amount': str(amount - discount),
         })

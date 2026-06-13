@@ -20,7 +20,10 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 
 PaymentOrderRequestSerializer = inline_serializer(
     name='PaymentOrderRequest',
-    fields={'order_number': serializers.CharField()},
+    fields={
+        'order_number': serializers.CharField(),
+        'email': serializers.EmailField(required=False),
+    },
 )
 StripeIntentResponseSerializer = inline_serializer(
     name='StripeIntentResponse',
@@ -56,6 +59,24 @@ def delivery_price_not_final_response(order):
     return None
 
 
+def get_order_for_payment(request):
+    order_number = request.data.get('order_number')
+    try:
+        order = Order.objects.get(order_number=order_number)
+    except Order.DoesNotExist:
+        return None, Response({'detail': 'Заказ не найден'}, status=404)
+
+    if order.user_id:
+        if not request.user.is_authenticated or order.user_id != request.user.id:
+            return None, Response({'detail': 'Нет доступа к заказу'}, status=403)
+        return order, None
+
+    email = str(request.data.get('email') or '').strip().lower()
+    if not email or email != order.email.lower():
+        return None, Response({'detail': 'Нет доступа к заказу'}, status=403)
+    return order, None
+
+
 class StripeCreateIntentView(APIView):
     """
     POST /payments/stripe/create-intent/
@@ -75,11 +96,9 @@ class StripeCreateIntentView(APIView):
         },
     )
     def post(self, request):
-        order_number = request.data.get('order_number')
-        try:
-            order = Order.objects.get(order_number=order_number)
-        except Order.DoesNotExist:
-            return Response({'detail': 'Заказ не найден'}, status=404)
+        order, error_response = get_order_for_payment(request)
+        if error_response is not None:
+            return error_response
 
         if order.status not in (Order.Status.NEW, Order.Status.WAITING_PAYMENT):
             return Response({'detail': 'Заказ уже оплачен или отменён'}, status=400)
@@ -184,11 +203,12 @@ class KaspiCreateView(APIView):
         responses={200: KaspiCreateResponseSerializer, 404: OpenApiResponse(description='Заказ не найден')},
     )
     def post(self, request):
-        order_number = request.data.get('order_number')
-        try:
-            order = Order.objects.get(order_number=order_number)
-        except Order.DoesNotExist:
-            return Response({'detail': 'Заказ не найден'}, status=404)
+        order, error_response = get_order_for_payment(request)
+        if error_response is not None:
+            return error_response
+
+        if order.status not in (Order.Status.NEW, Order.Status.WAITING_PAYMENT):
+            return Response({'detail': 'Заказ уже оплачен или отменён'}, status=400)
         response = delivery_price_not_final_response(order)
         if response is not None:
             return response

@@ -7,7 +7,7 @@ from django.utils.html import format_html
 from mptt.admin import MPTTModelAdmin
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
-    ProductMedia, ProductVariant, Promo, Review, Size, StockMovement,
+    ProductMedia, ProductVariant, Review, Size, StockMovement,
     ImportJob, ImportJobError,
 )
 from .services import ReviewModerationService
@@ -515,6 +515,3 @@ class BannerAdmin(admin.ModelAdmin):
             'fields': ('created_at', 'updated_at'),
         }),
     )
-
-
-admin.site.register(Promo)

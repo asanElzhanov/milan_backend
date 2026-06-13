@@ -48,6 +48,11 @@ class BrandAPITests(APITestCase):
         self.assertEqual(response.data['slug'], 'nike')
         self.assertEqual(response.data['is_active'], True)
 
+    def test_brand_detail_does_not_expose_inactive_brand(self):
+        response = self.client.get(self.detail_url(self.archive))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_brand_slug_is_generated_from_name_when_empty(self):
         brand = Brand.objects.create(name='New Balance')
 

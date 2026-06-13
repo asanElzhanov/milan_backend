@@ -50,6 +50,10 @@ class ProductDetailApiTests(APITestCase):
         product = product or self.product
         return f'/api/v1/catalog/products/{product.slug}/'
 
+    def similar_url(self, product=None):
+        product = product or self.product
+        return f'/api/v1/catalog/products/{product.slug}/similar/'
+
     def make_image_file(self, name='product.jpg'):
         return SimpleUploadedFile(name, b'image content', content_type='image/jpeg')
 
@@ -78,6 +82,14 @@ class ProductDetailApiTests(APITestCase):
         self.assertEqual(response.data['brand']['slug'], self.brand.slug)
         self.assertEqual(response.data['seo_title'], 'Air Max SEO')
         self.assertEqual(response.data['seo_description'], 'Air Max SEO description')
+
+    def test_similar_products_do_not_use_inactive_source_product(self):
+        self.product.is_active = False
+        self.product.save(update_fields=['is_active', 'updated_at'])
+
+        response = self.client.get(self.similar_url())
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_inactive_product_is_not_public(self):
         inactive = Product.objects.create(
