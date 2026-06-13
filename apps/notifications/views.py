@@ -8,7 +8,11 @@ from .models import Notification
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
-        fields = ('id', 'type', 'title', 'message', 'is_read', 'created_at')
+        fields = (
+            'id', 'recipient', 'role', 'event_type',
+            'title', 'message', 'is_read', 'created_at', 'updated_at',
+        )
+        read_only_fields = fields
 
 
 class NotificationListView(generics.ListAPIView):
@@ -19,7 +23,7 @@ class NotificationListView(generics.ListAPIView):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Notification.objects.none()
-        return Notification.objects.filter(user=self.request.user)
+        return Notification.objects.filter(recipient=self.request.user)
 
     @extend_schema(
         tags=['Notifications'],
@@ -46,5 +50,5 @@ class NotificationReadView(APIView):
         },
     )
     def post(self, request):
-        Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
+        Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
         return Response({'detail': 'Все уведомления прочитаны'})
