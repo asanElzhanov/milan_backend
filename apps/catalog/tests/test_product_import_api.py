@@ -257,6 +257,29 @@ class ProductImportApiTests(APITestCase):
         self.assertIn('row_number,error_message,sku', content)
         self.assertIn('2,Invalid price,BAD-SKU', content)
 
+    def test_import_detail_exposes_protected_error_report_url(self):
+        self.authenticate_manager()
+        import_job = self.make_job(status=ImportJob.Status.COMPLETED_WITH_ERRORS)
+        report_path = import_job.file.storage.save(
+            'catalog/imports/error_reports/detail-errors.csv',
+            ContentFile(b'row_number,error_message\n2,Invalid\n'),
+        )
+        import_job.error_report = {
+            'file': report_path,
+            'format': 'csv',
+            'url': 'http://public-storage.example/detail-errors.csv',
+        }
+        import_job.save(update_fields=['error_report'])
+
+        response = self.client.get(self.detail_url(import_job))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['error_report']['format'], 'csv')
+        self.assertTrue(response.data['error_report']['available'])
+        self.assertIn(self.error_report_url(import_job), response.data['error_report']['download_url'])
+        self.assertNotIn('file', response.data['error_report'])
+        self.assertNotIn('public-storage.example', response.data['error_report']['download_url'])
+
     def test_error_report_download_returns_404_when_missing(self):
         self.authenticate_manager()
         import_job = self.make_job(status=ImportJob.Status.COMPLETED)

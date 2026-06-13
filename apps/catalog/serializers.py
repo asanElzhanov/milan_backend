@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
+from django.urls import reverse
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 
@@ -201,6 +202,7 @@ class ImportJobUploadSerializer(serializers.ModelSerializer):
 
 class ImportJobBaseSerializer(serializers.ModelSerializer):
     created_by = serializers.SerializerMethodField()
+    error_report = serializers.SerializerMethodField()
 
     class Meta:
         model = ImportJob
@@ -218,6 +220,24 @@ class ImportJobBaseSerializer(serializers.ModelSerializer):
             'id': obj.created_by_id,
             'email': obj.created_by.email,
             'full_name': obj.created_by.full_name,
+        }
+
+    @extend_schema_field(serializers.DictField(allow_null=True))
+    def get_error_report(self, obj):
+        report = obj.error_report
+        if not report:
+            return None
+        if not isinstance(report, dict) or not report.get('file'):
+            return report
+
+        download_url = reverse('product-import-error-report', kwargs={'pk': obj.pk})
+        request = self.context.get('request')
+        if request:
+            download_url = request.build_absolute_uri(download_url)
+        return {
+            'available': True,
+            'format': report.get('format', 'csv'),
+            'download_url': download_url,
         }
 
 

@@ -177,6 +177,7 @@ class ProductImportServiceTests(TestCase):
         self.assertEqual(ImportJobError.objects.filter(import_job=job).count(), 1)
         self.assertIsInstance(job.error_report, dict)
         self.assertEqual(job.error_report['format'], 'csv')
+        self.assertNotIn('url', job.error_report)
         with job.file.storage.open(job.error_report['file'], 'rb') as report_file:
             report = report_file.read().decode('utf-8-sig')
         rows = list(csv.DictReader(io.StringIO(report)))

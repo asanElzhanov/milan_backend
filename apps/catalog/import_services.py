@@ -245,8 +245,9 @@ class ProductImportService:
     @classmethod
     def process_import(cls, import_job):
         ImportJobError.objects.filter(import_job=import_job).delete()
-        import_job.status = ImportJob.Status.PROCESSING
-        import_job.started_at = timezone.now()
+        if import_job.status != ImportJob.Status.PROCESSING:
+            import_job.status = ImportJob.Status.PROCESSING
+            import_job.started_at = timezone.now()
         import_job.error_message = ''
         import_job.save(update_fields=['status', 'started_at', 'error_message', 'updated_at'])
 
@@ -285,9 +286,10 @@ class ProductImportService:
         except Exception as exc:
             import_job.status = ImportJob.Status.FAILED
             import_job.error_message = str(exc)[:500]
+            import_job.error_report = None
             import_job.finished_at = timezone.now()
             import_job.save(update_fields=[
-                'status', 'error_message', 'finished_at', 'updated_at',
+                'status', 'error_message', 'error_report', 'finished_at', 'updated_at',
             ])
             raise
 
@@ -369,10 +371,6 @@ class ProductImportService:
             'file': saved_path,
             'format': 'csv',
         }
-        try:
-            report['url'] = storage.url(saved_path)
-        except Exception:
-            logger.exception('Failed to build import error report URL for job %s', import_job.pk)
         return report
 
     @classmethod
