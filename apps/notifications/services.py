@@ -132,7 +132,7 @@ class EmailNotificationService:
             f'Сумма заказа: {order.total_amount} ₸\n'
             f'Статус заказа: {order.get_status_display()}\n'
         )
-        return cls._send_customer_email(order.email, subject, message)
+        return cls._send_customer_email(cls._order_recipient_email(order), subject, message)
 
     @classmethod
     def send_order_paid_email(cls, order):
@@ -142,7 +142,7 @@ class EmailNotificationService:
             f'Сумма заказа: {order.total_amount} ₸\n'
             f'Статус оплаты: {order.get_payment_status_display()}\n'
         )
-        return cls._send_customer_email(order.email, subject, message)
+        return cls._send_customer_email(cls._order_recipient_email(order), subject, message)
 
     @classmethod
     def send_order_status_changed_email(cls, order, old_status=None, new_status=None):
@@ -154,7 +154,7 @@ class EmailNotificationService:
             f'Предыдущий статус: {cls._order_status_label(old_status)}\n'
             f'Новый статус: {cls._order_status_label(new_status)}\n'
         )
-        return cls._send_customer_email(order.email, subject, message)
+        return cls._send_customer_email(cls._order_recipient_email(order), subject, message)
 
     @classmethod
     def send_order_cancelled_email(cls, order):
@@ -164,7 +164,7 @@ class EmailNotificationService:
             f'Статус заказа: {order.get_status_display()}\n'
             f'Статус оплаты: {order.get_payment_status_display()}\n'
         )
-        return cls._send_customer_email(order.email, subject, message)
+        return cls._send_customer_email(cls._order_recipient_email(order), subject, message)
 
     @classmethod
     def send_review_published_email(cls, review):
@@ -199,6 +199,10 @@ class EmailNotificationService:
             recipient_list=[recipient_email],
             fail_silently=False,
         )
+
+    @staticmethod
+    def _order_recipient_email(order):
+        return order.email or getattr(order.user, 'email', '')
 
     @staticmethod
     def _order_status_label(status):

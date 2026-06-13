@@ -15,7 +15,9 @@ from apps.notifications.tasks import (
     send_review_published_email,
     send_review_rejected_email,
 )
-from apps.orders.models import Order, OrderItem
+from apps.orders.models import Cart, CartItem, Order, OrderItem
+from apps.orders.services import CheckoutService, OrderStatusService
+from apps.catalog.services import ReviewModerationService
 
 
 @override_settings(
@@ -148,11 +150,25 @@ class EmailNotificationTaskTests(TestCase):
         self.assertEqual(mail.outbox, [])
 
     def test_missing_email_does_not_crash_or_send(self):
-        order = self.create_order(email='')
+        order = self.create_order(user=None, email='')
 
         send_order_created_email.apply(args=(order.pk,), throw=True)
 
         self.assertEqual(mail.outbox, [])
+
+    def test_order_email_uses_order_email_before_user_email(self):
+        order = self.create_order(email='order-email@example.com')
+
+        send_order_created_email.apply(args=(order.pk,), throw=True)
+
+        self.assertEqual(mail.outbox[0].to, ['order-email@example.com'])
+
+    def test_order_email_falls_back_to_user_email(self):
+        order = self.create_order(email='')
+
+        send_order_created_email.apply(args=(order.pk,), throw=True)
+
+        self.assertEqual(mail.outbox[0].to, [self.user.email])
 
     def test_order_created_email_is_scheduled_on_commit(self):
         order = self.create_order()
@@ -165,3 +181,116 @@ class EmailNotificationTaskTests(TestCase):
             callbacks[0]()
 
         delay.assert_called_once_with(order.pk)
+
+    def test_checkout_schedules_order_created_email_after_commit(self):
+        cart = Cart.objects.create(user=self.user, token=None)
+        CartItem.objects.create(cart=cart, variant=self.variant, quantity=1)
+
+        with patch('apps.notifications.tasks.send_order_created_email.delay') as delay:
+            with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                order = CheckoutService.checkout(
+                    cart=cart,
+                    user=self.user,
+                    customer_name='Customer Name',
+                    phone='+77011234567',
+                    email='checkout@example.com',
+                    city='Almaty',
+                    delivery_address='Abay 10',
+                    delivery_method=Order.DeliveryMethod.COURIER,
+                )
+                delay.assert_not_called()
+            self.assertEqual(len(callbacks), 1)
+            callbacks[0]()
+
+        delay.assert_called_once_with(order.pk)
+
+    def test_payment_paid_schedules_order_paid_email_after_commit(self):
+        order = self.create_order()
+
+        with patch('apps.notifications.tasks.send_order_paid_email.delay') as delay:
+            with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                OrderStatusService.mark_paid(order)
+                delay.assert_not_called()
+            self.assertEqual(len(callbacks), 1)
+            callbacks[0]()
+
+        delay.assert_called_once_with(order.pk)
+
+    def test_paid_email_is_scheduled_when_only_payment_status_changes(self):
+        order = self.create_order(status=Order.Status.PAID, payment_status=Order.PaymentStatus.UNPAID)
+
+        with patch('apps.notifications.tasks.send_order_paid_email.delay') as delay:
+            with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                OrderStatusService.mark_paid(order)
+            self.assertEqual(len(callbacks), 1)
+            callbacks[0]()
+
+        delay.assert_called_once_with(order.pk)
+
+    def test_status_change_schedules_status_changed_email_after_commit(self):
+        order = self.create_order()
+
+        with patch('apps.notifications.tasks.send_order_status_changed_email.delay') as delay:
+            with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                OrderStatusService.change_status(order, Order.Status.WAITING_PAYMENT)
+                delay.assert_not_called()
+            self.assertEqual(len(callbacks), 1)
+            callbacks[0]()
+
+        delay.assert_called_once_with(order.pk, Order.Status.NEW, Order.Status.WAITING_PAYMENT)
+
+    def test_cancel_order_schedules_cancelled_email_after_commit(self):
+        order = self.create_order()
+
+        with patch('apps.notifications.tasks.send_order_cancelled_email.delay') as delay:
+            with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                OrderStatusService.cancel_order(order)
+                delay.assert_not_called()
+            self.assertEqual(len(callbacks), 1)
+            callbacks[0]()
+
+        delay.assert_called_once_with(order.pk)
+
+    def test_review_publish_and_reject_schedule_moderation_emails_after_commit(self):
+        published_review = self.create_review()
+        rejected_review = self.create_review(order=self.create_order(status=Order.Status.COMPLETED))
+        manager = User.objects.create_user(
+            email='email-review-manager@example.com',
+            role=User.Role.MANAGER,
+        )
+
+        with (
+            patch('apps.notifications.tasks.send_review_published_email.delay') as published_delay,
+            patch('apps.notifications.tasks.send_review_rejected_email.delay') as rejected_delay,
+        ):
+            with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                ReviewModerationService.publish_review(published_review, manager)
+                ReviewModerationService.reject_review(rejected_review, manager)
+                published_delay.assert_not_called()
+                rejected_delay.assert_not_called()
+            self.assertEqual(len(callbacks), 2)
+            for callback in callbacks:
+                callback()
+
+        published_delay.assert_called_once_with(published_review.pk)
+        rejected_delay.assert_called_once_with(rejected_review.pk)
+
+    def test_no_email_scheduled_when_order_status_does_not_change(self):
+        order = self.create_order()
+
+        with patch('apps.notifications.tasks.send_order_status_changed_email.delay') as delay:
+            with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                OrderStatusService.change_status(order, Order.Status.NEW)
+            self.assertEqual(callbacks, [])
+
+        delay.assert_not_called()
+
+    def test_no_cancelled_email_scheduled_when_order_already_cancelled(self):
+        order = self.create_order(status=Order.Status.CANCELLED)
+
+        with patch('apps.notifications.tasks.send_order_cancelled_email.delay') as delay:
+            with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                OrderStatusService.cancel_order(order)
+            self.assertEqual(callbacks, [])
+
+        delay.assert_not_called()

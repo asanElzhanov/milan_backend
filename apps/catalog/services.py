@@ -96,6 +96,7 @@ class ReviewModerationService:
                 .select_related('product')
                 .get(pk=review.pk)
             )
+            old_status = locked_review.status
             locked_review.status = status
             locked_review.moderated_by = user
             locked_review.moderated_at = timezone.now()
@@ -107,6 +108,8 @@ class ReviewModerationService:
             ReviewRatingService.recalculate_product_rating(locked_review.product)
             from apps.notifications.services import EmailNotificationService
 
+            if old_status == status:
+                return locked_review
             if status == Review.Status.PUBLISHED:
                 EmailNotificationService.schedule_review_published_email(locked_review)
             elif status == Review.Status.REJECTED:

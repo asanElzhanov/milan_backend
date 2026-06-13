@@ -849,6 +849,7 @@ class OrderStatusService:
         with transaction.atomic():
             locked_order = cls._lock_order(order)
             old_status = locked_order.status
+            old_payment_status = locked_order.payment_status
             if old_status not in {Order.Status.NEW, Order.Status.WAITING_PAYMENT, Order.Status.PAID}:
                 raise InvalidOrderStatusTransitionError(
                     f'Нельзя отметить оплаченным заказ из статуса {old_status}.'
@@ -869,6 +870,7 @@ class OrderStatusService:
                     changed_by=changed_by,
                     comment=comment,
                 )
+            if old_payment_status != Order.PaymentStatus.PAID:
                 from apps.notifications.services import EmailNotificationService
 
                 EmailNotificationService.schedule_order_paid_email(locked_order)

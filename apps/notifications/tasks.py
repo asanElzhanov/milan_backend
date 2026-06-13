@@ -20,11 +20,11 @@ def _send_order_created(order_id, retry_task):
     try:
         from apps.orders.models import Order
 
-        order = Order.objects.get(pk=order_id)
+        order = Order.objects.select_related('user').get(pk=order_id)
     except Order.DoesNotExist:
         logger.warning('Cannot send order created email: order_id=%s does not exist', order_id)
         return
-    if not order.email:
+    if not EmailNotificationService._order_recipient_email(order):
         logger.warning('Cannot send order created email: order_id=%s has no email', order_id)
         return
     try:
@@ -37,11 +37,11 @@ def _send_order_paid(order_id, retry_task):
     try:
         from apps.orders.models import Order
 
-        order = Order.objects.get(pk=order_id)
+        order = Order.objects.select_related('user').get(pk=order_id)
     except Order.DoesNotExist:
         logger.warning('Cannot send order paid email: order_id=%s does not exist', order_id)
         return
-    if not order.email:
+    if not EmailNotificationService._order_recipient_email(order):
         logger.warning('Cannot send order paid email: order_id=%s has no email', order_id)
         return
     try:
@@ -54,14 +54,14 @@ def _send_order_status_changed(order_id, retry_task, old_status=None, new_status
     try:
         from apps.orders.models import Order
 
-        order = Order.objects.get(pk=order_id)
+        order = Order.objects.select_related('user').get(pk=order_id)
     except Order.DoesNotExist:
         logger.warning(
             'Cannot send order status changed email: order_id=%s does not exist',
             order_id,
         )
         return
-    if not order.email:
+    if not EmailNotificationService._order_recipient_email(order):
         logger.warning(
             'Cannot send order status changed email: order_id=%s has no email',
             order_id,
@@ -122,11 +122,11 @@ def send_order_cancelled_email(self, order_id):
     try:
         from apps.orders.models import Order
 
-        order = Order.objects.get(pk=order_id)
+        order = Order.objects.select_related('user').get(pk=order_id)
     except Order.DoesNotExist:
         logger.warning('Cannot send order cancelled email: order_id=%s does not exist', order_id)
         return
-    if not order.email:
+    if not EmailNotificationService._order_recipient_email(order):
         logger.warning('Cannot send order cancelled email: order_id=%s has no email', order_id)
         return
     try:
