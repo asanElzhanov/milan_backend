@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.conf import settings
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from phonenumber_field.modelfields import PhoneNumberField
@@ -112,6 +114,51 @@ class Address(models.Model):
         super().save(*args, **kwargs)
 
 
+class CustomerProfile(models.Model):
+    class Source(models.TextChoices):
+        WEBSITE = 'website', _('Website')
+        INSTAGRAM = 'instagram', _('Instagram')
+        WHATSAPP = 'whatsapp', _('WhatsApp')
+        REFERRAL = 'referral', _('Referral')
+        MARKETPLACE = 'marketplace', _('Marketplace')
+        OFFLINE = 'offline', _('Offline')
+        OTHER = 'other', _('Other')
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='customer_profile',
+        verbose_name=_('пользователь'),
+    )
+    source = models.CharField(
+        _('источник клиента'),
+        max_length=20,
+        choices=Source.choices,
+        default=Source.WEBSITE,
+    )
+    manager_comment = models.TextField(_('комментарий менеджера'), blank=True)
+    created_at = models.DateTimeField(_('создан'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('обновлен'), auto_now=True)
+
+    class Meta:
+        verbose_name = _('профиль клиента')
+        verbose_name_plural = _('профили клиентов')
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['source']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        return str(self.user)
+
+
+@receiver(post_save, sender=User)
+def create_customer_profile(sender, instance, **kwargs):
+    if instance.role == User.Role.CUSTOMER:
+        CustomerProfile.objects.get_or_create(user=instance)
+
+
 class Wishlist(models.Model):
     """Избранное"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='wishlist_items')
@@ -152,6 +199,5 @@ class OTPCode(models.Model):
     def mark_used(self):
         self.is_used = True
         self.save(update_fields=['is_used'])
-
 
 
