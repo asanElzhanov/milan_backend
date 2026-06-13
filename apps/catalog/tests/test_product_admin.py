@@ -4,7 +4,10 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import User
-from apps.catalog.models import Brand, Category, Color, Product, ProductVariant, Size, StockMovement
+from apps.catalog.models import (
+    Brand, Category, Color, ImportJob, ImportJobError,
+    Product, ProductVariant, Size, StockMovement,
+)
 
 
 class ProductAdminTests(TestCase):
@@ -98,3 +101,91 @@ class ProductAdminTests(TestCase):
         self.assertEqual(movement.quantity, 1)
         self.assertEqual(movement.operation_type, StockMovement.OperationType.INCOME)
         self.assertEqual(movement.comment, 'Readonly history')
+
+    def test_import_job_changelist_opens(self):
+        import_job = ImportJob.objects.create(
+            file='catalog/imports/products.csv',
+            created_by=self.admin_user,
+            status=ImportJob.Status.COMPLETED_WITH_ERRORS,
+            total_count=2,
+            success_count=1,
+            failed_count=1,
+            error_message='Import finished with errors',
+        )
+
+        response = self.client.get(reverse('admin:catalog_importjob_changelist'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, str(import_job.id))
+        self.assertContains(response, 'completed_with_errors')
+        self.assertContains(response, self.admin_user.email)
+
+    def test_import_job_admin_searches_by_error_message(self):
+        import_job = ImportJob.objects.create(
+            file='catalog/imports/products.csv',
+            created_by=self.admin_user,
+            error_message='Fatal CSV header error',
+        )
+
+        response = self.client.get(
+            reverse('admin:catalog_importjob_changelist'),
+            {'q': 'Fatal CSV header'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, str(import_job.id))
+
+    def test_import_job_change_page_has_readonly_status_and_counts(self):
+        import_job = ImportJob.objects.create(
+            file='catalog/imports/products.csv',
+            created_by=self.admin_user,
+            status=ImportJob.Status.COMPLETED,
+            total_count=1,
+            success_count=1,
+        )
+
+        response = self.client.get(reverse('admin:catalog_importjob_change', args=[import_job.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Статус')
+        self.assertContains(response, 'completed')
+        self.assertNotContains(response, 'name="status"')
+        self.assertNotContains(response, 'name="total_count"')
+
+    def test_import_job_error_admin_opens_and_is_read_only(self):
+        import_job = ImportJob.objects.create(
+            file='catalog/imports/products.csv',
+            created_by=self.admin_user,
+            status=ImportJob.Status.COMPLETED_WITH_ERRORS,
+            failed_count=1,
+        )
+        error = ImportJobError.objects.create(
+            import_job=import_job,
+            row_number=2,
+            row_data={'sku': 'BAD-SKU'},
+            error_message='Invalid price',
+            field_errors={'price': 'invalid'},
+        )
+
+        changelist_response = self.client.get(reverse('admin:catalog_importjoberror_changelist'))
+        change_response = self.client.get(reverse('admin:catalog_importjoberror_change', args=[error.pk]))
+        post_response = self.client.post(
+            reverse('admin:catalog_importjoberror_change', args=[error.pk]),
+            {
+                'import_job': import_job.pk,
+                'row_number': 99,
+                'error_message': 'Changed',
+                'row_data': '{}',
+                'field_errors': '{}',
+            },
+        )
+
+        self.assertEqual(changelist_response.status_code, 200)
+        self.assertContains(changelist_response, 'Invalid price')
+        self.assertEqual(change_response.status_code, 200)
+        self.assertContains(change_response, 'BAD-SKU')
+        self.assertNotContains(change_response, 'name="row_number"')
+        self.assertEqual(post_response.status_code, 403)
+        error.refresh_from_db()
+        self.assertEqual(error.row_number, 2)
+        self.assertEqual(error.error_message, 'Invalid price')

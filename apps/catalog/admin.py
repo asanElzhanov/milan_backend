@@ -5,6 +5,7 @@ from mptt.admin import MPTTModelAdmin
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
     ProductMedia, ProductVariant, Promo, Review, Size, StockMovement,
+    ImportJob, ImportJobError,
 )
 from .services import ReviewModerationService
 
@@ -195,6 +196,73 @@ class StockMovementAdmin(admin.ModelAdmin):
     @admin.display(description='товар')
     def product(self, obj):
         return obj.variant.product
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        if obj is None:
+            return super().has_change_permission(request, obj)
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ImportJob)
+class ImportJobAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'status', 'created_by',
+        'total_count', 'success_count', 'failed_count',
+        'started_at', 'finished_at', 'created_at',
+    )
+    search_fields = (
+        'id',
+        'created_by__email',
+        'created_by__first_name',
+        'created_by__last_name',
+        'error_message',
+    )
+    list_filter = ('status', 'created_at', 'started_at', 'finished_at')
+    readonly_fields = (
+        'status', 'total_count', 'success_count', 'failed_count',
+        'error_message', 'error_report',
+        'started_at', 'finished_at', 'created_at', 'updated_at',
+    )
+    ordering = ('-created_at',)
+    autocomplete_fields = ('created_by',)
+    fieldsets = (
+        ('Файл', {
+            'fields': ('file', 'created_by'),
+        }),
+        ('Статус', {
+            'fields': (
+                'status', 'total_count', 'success_count', 'failed_count',
+                'error_message', 'error_report',
+            ),
+        }),
+        ('Системные поля', {
+            'fields': ('started_at', 'finished_at', 'created_at', 'updated_at'),
+        }),
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('created_by')
+
+
+@admin.register(ImportJobError)
+class ImportJobErrorAdmin(admin.ModelAdmin):
+    list_display = ('import_job', 'row_number', 'error_message', 'created_at')
+    search_fields = ('error_message', 'row_data')
+    list_filter = ('created_at',)
+    readonly_fields = (
+        'import_job', 'row_number', 'row_data',
+        'error_message', 'field_errors', 'created_at',
+    )
+    ordering = ('-created_at',)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('import_job')
 
     def has_add_permission(self, request):
         return False
