@@ -20,6 +20,12 @@ class ReviewAdminTests(TestCase):
         self.client.force_login(self.admin_user)
         self.api_client = APIClient()
         self.customer = User.objects.create_user(email='review-customer@example.com')
+        self.manager = User.objects.create_user(
+            email='review-manager-admin@example.com',
+            password='secret123',
+            role=User.Role.MANAGER,
+            is_staff=True,
+        )
         self.category = Category.objects.create(name='Shoes', slug='review-admin-shoes')
         self.brand = Brand.objects.create(name='Nike', slug='review-admin-nike')
         self.product = Product.objects.create(
@@ -182,6 +188,34 @@ class ReviewAdminTests(TestCase):
         self.assertEqual(review.moderated_by, self.admin_user)
         self.assertEqual(review.moderation_comment, 'Looks good')
         self.assertEqual(self.product.reviews_count, 1)
+
+    def test_manager_can_access_review_admin_and_moderate_with_audit(self):
+        self.client.force_login(self.manager)
+        review = self.create_review()
+
+        response = self.client.post(
+            reverse('admin:catalog_review_changelist'),
+            {
+                'action': 'publish_reviews',
+                '_selected_action': [review.pk],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        review.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(review.status, Review.Status.PUBLISHED)
+        self.assertEqual(review.moderated_by, self.manager)
+        self.assertIsNotNone(review.moderated_at)
+        self.assertEqual(self.product.reviews_count, 1)
+
+    def test_normal_user_cannot_access_review_admin(self):
+        self.client.force_login(self.customer)
+        review = self.create_review()
+
+        response = self.client.get(reverse('admin:catalog_review_change', args=[review.pk]))
+
+        self.assertNotEqual(response.status_code, 200)
 
     def test_review_admin_rejects_unsupported_pending_status_change(self):
         review = self.create_review(status=Review.Status.PUBLISHED)

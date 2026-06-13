@@ -11,6 +11,15 @@ from .models import (
 from .services import OrderStatusService
 
 
+def _is_manager(user):
+    return bool(
+        user
+        and user.is_active
+        and user.is_staff
+        and getattr(user, 'role', None) == 'manager'
+    )
+
+
 class OrderAdminForm(forms.ModelForm):
     class Meta:
         model = Order
@@ -92,7 +101,8 @@ class OrderAdmin(admin.ModelAdmin):
         'order_number', 'delivery_method_code', 'delivery_method_name',
         'items_total', 'discount_amount', 'delivery_price',
         'delivery_requires_manager_calculation', 'delivery_price_is_final',
-        'promo_code', 'promo_code_text', 'total_amount', 'created_at', 'updated_at',
+        'promo_code', 'promo_code_text', 'total_amount', 'payment_status',
+        'created_at', 'updated_at',
     )
     ordering = ('-created_at',)
     inlines = [OrderItemInline, OrderStatusHistoryInline]
@@ -109,6 +119,43 @@ class OrderAdmin(admin.ModelAdmin):
             .select_related('user', 'delivery_method_ref', 'promo_code')
             .prefetch_related('items', 'status_history')
         )
+
+    def has_module_permission(self, request):
+        if _is_manager(request.user):
+            return True
+        return super().has_module_permission(request)
+
+    def has_view_permission(self, request, obj=None):
+        if _is_manager(request.user):
+            return True
+        return super().has_view_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if _is_manager(request.user):
+            return True
+        return super().has_change_permission(request, obj)
+
+    def has_add_permission(self, request):
+        if _is_manager(request.user):
+            return False
+        return super().has_add_permission(request)
+
+    def has_delete_permission(self, request, obj=None):
+        if _is_manager(request.user):
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = set(super().get_readonly_fields(request, obj))
+        if _is_manager(request.user):
+            editable_fields = {'status', 'manager_comment'}
+            model_fields = {
+                field.name
+                for field in self.model._meta.fields
+                if field.name not in editable_fields
+            }
+            readonly_fields.update(model_fields)
+        return tuple(readonly_fields)
 
     @admin.display(description='способ доставки', ordering='delivery_method')
     def delivery_display(self, obj):

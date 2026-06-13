@@ -23,6 +23,12 @@ class OrderAdminTests(TestCase):
             email='orders-admin@example.com',
             password='secret123',
         )
+        self.manager = User.objects.create_user(
+            email='orders-manager@example.com',
+            password='secret123',
+            role=User.Role.MANAGER,
+            is_staff=True,
+        )
         self.user = User.objects.create_user(email='order-customer@example.com')
         self.client.force_login(self.admin_user)
 
@@ -177,6 +183,49 @@ class OrderAdminTests(TestCase):
         self.assertEqual(self.order.comment, 'Admin test')
         self.assertEqual(self.order.manager_comment, 'Call before delivery')
 
+    def test_manager_can_access_order_admin_and_change_status_with_audit(self):
+        self.client.force_login(self.manager)
+
+        response = self.client.post(
+            self.change_url(),
+            self.order_post_data(
+                status_value=Order.Status.CANCELLED,
+                manager_comment='Manager cancelled',
+            ),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.order.refresh_from_db()
+        history = OrderStatusHistory.objects.latest('created_at')
+        self.assertEqual(self.order.status, Order.Status.CANCELLED)
+        self.assertEqual(history.changed_by, self.manager)
+        self.assertEqual(history.comment, 'Manager cancelled')
+
+    def test_manager_cannot_directly_edit_payment_status_or_totals(self):
+        self.client.force_login(self.manager)
+
+        response = self.client.post(
+            self.change_url(),
+            {
+                **self.order_post_data(manager_comment='Manager note'),
+                'payment_status': Order.PaymentStatus.PAID,
+                'total_amount': '1.00',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.payment_status, Order.PaymentStatus.UNPAID)
+        self.assertEqual(self.order.total_amount, Decimal('200.00'))
+        self.assertEqual(self.order.manager_comment, 'Manager note')
+
+    def test_normal_user_cannot_access_order_admin(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(self.change_url())
+
+        self.assertNotEqual(response.status_code, 200)
+
     def test_order_item_inline_is_readonly(self):
         response = self.client.post(
             self.change_url(),
@@ -217,6 +266,25 @@ class OrderAdminTests(TestCase):
                 'order': self.order.pk,
                 'variant': self.variant.pk,
                 'product_name': 'Changed',
+                'quantity': 99,
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        item.refresh_from_db()
+        self.assertEqual(item.product_name, 'Order Admin Product')
+        self.assertEqual(item.quantity, 2)
+
+    def test_manager_cannot_edit_order_item(self):
+        self.client.force_login(self.manager)
+        item = self.order.items.get()
+
+        response = self.client.post(
+            reverse('admin:orders_orderitem_change', args=[item.pk]),
+            {
+                'order': self.order.pk,
+                'variant': self.variant.pk,
+                'product_name': 'Changed by manager',
                 'quantity': 99,
             },
         )

@@ -13,6 +13,15 @@ from apps.orders.models import Order
 from .models import Address, CustomerProfile, OTPCode, User
 
 
+def _is_manager(user):
+    return bool(
+        user
+        and user.is_active
+        and user.is_staff
+        and getattr(user, 'role', None) == User.Role.MANAGER
+    )
+
+
 class CustomerProfileInline(admin.StackedInline):
     model = CustomerProfile
     extra = 0
@@ -104,6 +113,40 @@ class CustomerProfileAdmin(admin.ModelAdmin):
                 _last_order=Max('user__orders__created_at'),
             )
         )
+
+    def has_module_permission(self, request):
+        if _is_manager(request.user):
+            return True
+        return super().has_module_permission(request)
+
+    def has_view_permission(self, request, obj=None):
+        if _is_manager(request.user):
+            return True
+        return super().has_view_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if _is_manager(request.user):
+            return True
+        return super().has_change_permission(request, obj)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = set(super().get_readonly_fields(request, obj))
+        readonly_fields.add('user')
+        if _is_manager(request.user):
+            editable_fields = {'source', 'manager_comment'}
+            model_fields = {
+                field.name
+                for field in self.model._meta.fields
+                if field.name not in editable_fields
+            }
+            readonly_fields.update(model_fields)
+        return tuple(readonly_fields)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == 'user':

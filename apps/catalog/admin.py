@@ -13,6 +13,19 @@ from .models import (
 from .services import ReviewModerationService
 
 
+def _is_review_manager(user):
+    return bool(
+        user
+        and user.is_active
+        and user.is_staff
+        and (
+            getattr(user, 'is_superuser', False)
+            or getattr(user, 'role', None) in {'manager', 'admin'}
+            or user.has_perm('catalog.change_review')
+        )
+    )
+
+
 class ReviewAdminForm(forms.ModelForm):
     class Meta:
         model = Review
@@ -339,6 +352,26 @@ class ReviewAdmin(admin.ModelAdmin):
         return super().get_queryset(request).select_related(
             'product', 'user', 'order', 'moderated_by',
         )
+
+    def has_module_permission(self, request):
+        if _is_review_manager(request.user):
+            return True
+        return super().has_module_permission(request)
+
+    def has_view_permission(self, request, obj=None):
+        if _is_review_manager(request.user):
+            return True
+        return super().has_view_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if _is_review_manager(request.user):
+            return True
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if _is_review_manager(request.user):
+            return False
+        return super().has_delete_permission(request, obj)
 
     def save_model(self, request, obj, form, change):
         if change and 'status' in form.changed_data:

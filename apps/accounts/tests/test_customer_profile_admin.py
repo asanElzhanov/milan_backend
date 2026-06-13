@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.contrib import admin
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from apps.accounts.admin import CustomerProfileAdmin
@@ -15,6 +15,12 @@ class CustomerProfileAdminTests(TestCase):
             email='crm-admin@example.com',
             password='secret123',
         )
+        self.manager = User.objects.create_user(
+            email='crm-manager@example.com',
+            password='secret123',
+            role=User.Role.MANAGER,
+            is_staff=True,
+        )
         self.customer = User.objects.create_user(
             email='crm-customer@example.com',
             phone='+77015550101',
@@ -23,6 +29,7 @@ class CustomerProfileAdminTests(TestCase):
         )
         self.client.force_login(self.admin_user)
         self.profile = self.customer.customer_profile
+        self.factory = RequestFactory()
 
     def create_order(self, *, status, payment_status, total_amount, city='Almaty'):
         return Order.objects.create(
@@ -82,6 +89,45 @@ class CustomerProfileAdminTests(TestCase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.source, CustomerProfile.Source.INSTAGRAM)
         self.assertEqual(self.profile.manager_comment, 'Prefers evening calls')
+
+    def test_manager_can_access_customer_profile_and_save_crm_fields(self):
+        self.client.force_login(self.manager)
+
+        response = self.client.post(
+            reverse('admin:accounts_customerprofile_change', args=[self.profile.pk]),
+            {
+                'source': CustomerProfile.Source.WHATSAPP,
+                'manager_comment': 'Writes in WhatsApp',
+                '_save': 'Save',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.source, CustomerProfile.Source.WHATSAPP)
+        self.assertEqual(self.profile.manager_comment, 'Writes in WhatsApp')
+        self.assertEqual(self.profile.user, self.customer)
+
+    def test_customer_profile_stats_and_user_are_readonly_for_manager(self):
+        request = self.factory.get('/')
+        request.user = self.manager
+        model_admin = CustomerProfileAdmin(CustomerProfile, admin.site)
+
+        readonly_fields = model_admin.get_readonly_fields(request, self.profile)
+
+        self.assertIn('user', readonly_fields)
+        self.assertIn('orders_count', readonly_fields)
+        self.assertIn('total_orders_amount', readonly_fields)
+        self.assertIn('last_order', readonly_fields)
+        self.assertNotIn('source', readonly_fields)
+        self.assertNotIn('manager_comment', readonly_fields)
+
+    def test_normal_user_cannot_access_customer_profile_admin(self):
+        self.client.force_login(self.customer)
+
+        response = self.client.get(reverse('admin:accounts_customerprofile_change', args=[self.profile.pk]))
+
+        self.assertNotEqual(response.status_code, 200)
 
     def test_customer_profile_admin_searches_by_customer_data(self):
         response = self.client.get(
