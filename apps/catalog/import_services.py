@@ -1,5 +1,6 @@
 import csv
 import io
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
@@ -242,28 +243,28 @@ class ProductImportService:
         import_job.save(update_fields=['status', 'started_at', 'error_message', 'updated_at'])
 
         try:
-            rows = cls.read_csv(import_job.file)
-            header_result = cls.validate_headers(rows.fieldnames or [])
-            if header_result['missing']:
-                raise ProductImportError(
-                    'Отсутствуют обязательные колонки: '
-                    + ', '.join(header_result['missing'])
-                )
+            with cls.open_csv(import_job.file) as rows:
+                header_result = cls.validate_headers(rows.fieldnames or [])
+                if header_result['missing']:
+                    raise ProductImportError(
+                        'Отсутствуют обязательные колонки: '
+                        + ', '.join(header_result['missing'])
+                    )
 
-            success_count = 0
-            failed_count = 0
-            error_report = []
-            for row_number, row in enumerate(rows, start=2):
-                result = cls.process_row(row, row_number, import_job)
-                if result.success:
-                    success_count += 1
-                else:
-                    failed_count += 1
-                    error_report.append({
-                        'row_number': row_number,
-                        'error_message': result.error_message,
-                        'field_errors': result.field_errors,
-                    })
+                success_count = 0
+                failed_count = 0
+                error_report = []
+                for row_number, row in enumerate(rows, start=2):
+                    result = cls.process_row(row, row_number, import_job)
+                    if result.success:
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                        error_report.append({
+                            'row_number': row_number,
+                            'error_message': result.error_message,
+                            'field_errors': result.field_errors,
+                        })
 
             import_job.total_count = success_count + failed_count
             import_job.success_count = success_count
@@ -291,14 +292,18 @@ class ProductImportService:
         return import_job
 
     @classmethod
-    def read_csv(cls, file_obj):
+    @classmethod
+    @contextmanager
+    def open_csv(cls, file_obj):
         file_obj.open('rb')
-        content = file_obj.read()
+        text_file = io.TextIOWrapper(file_obj.file, encoding='utf-8-sig', newline='')
         try:
-            text = content.decode('utf-8-sig')
+            yield csv.DictReader(text_file)
         except UnicodeDecodeError as exc:
             raise ProductImportError('CSV файл должен быть в UTF-8.') from exc
-        return csv.DictReader(io.StringIO(text))
+        finally:
+            text_file.close()
+            file_obj.close()
 
     @classmethod
     def _create_or_update_product(cls, data):
