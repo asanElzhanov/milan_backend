@@ -1,7 +1,9 @@
-from drf_spectacular.utils import extend_schema, inline_serializer
+from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, inline_serializer
 from rest_framework import generics, permissions, serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from .models import Notification
 
 
@@ -9,8 +11,7 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = (
-            'id', 'recipient', 'role', 'event_type',
-            'title', 'message', 'is_read', 'created_at', 'updated_at',
+            'id', 'title', 'message', 'event_type', 'is_read', 'created_at',
         )
         read_only_fields = fields
 
@@ -19,6 +20,8 @@ class NotificationListView(generics.ListAPIView):
     """GET /notifications/"""
     serializer_class = NotificationSerializer
     permission_classes = [permissions.IsAuthenticated]
+    filterset_fields = ('is_read', 'event_type')
+    ordering = ['-created_at']
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
@@ -28,14 +31,39 @@ class NotificationListView(generics.ListAPIView):
     @extend_schema(
         tags=['Notifications'],
         summary='Список уведомлений',
+        parameters=[
+            OpenApiParameter('is_read', OpenApiTypes.BOOL, OpenApiParameter.QUERY),
+            OpenApiParameter('event_type', OpenApiTypes.STR, OpenApiParameter.QUERY),
+        ],
         responses={200: NotificationSerializer(many=True)},
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
 
 
-class NotificationReadView(APIView):
-    """POST /notifications/read-all/ — пометить все прочитанными"""
+class NotificationMarkReadView(APIView):
+    """POST /notifications/<id>/mark-read/ — пометить уведомление прочитанным"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        tags=['Notifications'],
+        summary='Пометить уведомление прочитанным',
+        request=None,
+        responses={200: NotificationSerializer},
+    )
+    def post(self, request, pk):
+        notification = get_object_or_404(
+            Notification.objects.filter(recipient=request.user),
+            pk=pk,
+        )
+        if not notification.is_read:
+            notification.is_read = True
+            notification.save(update_fields=['is_read', 'updated_at'])
+        return Response(NotificationSerializer(notification).data)
+
+
+class NotificationMarkAllReadView(APIView):
+    """POST /notifications/mark-all-read/ — пометить все прочитанными"""
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
@@ -52,3 +80,6 @@ class NotificationReadView(APIView):
     def post(self, request):
         Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
         return Response({'detail': 'Все уведомления прочитаны'})
+
+
+NotificationReadView = NotificationMarkAllReadView
