@@ -396,6 +396,52 @@ class ProductListApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
 
+    def test_product_list_filters_by_multiple_brands(self):
+        nike = self.make_product('SKU-BRAND-NIKE', 'Nike Product', brand=self.brand)
+        adidas = self.make_product('SKU-BRAND-ADIDAS', 'Adidas Product', brand=self.other_brand)
+        self.make_product('SKU-BRAND-NONE', 'No Brand Product', brand=None)
+
+        response = self.client.get(
+            f'{self.list_url}?brand={self.brand.slug}&brand={self.other_brand.id}'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item['slug'] for item in self.response_items(response)},
+            {nike.slug, adidas.slug},
+        )
+
+    def test_product_list_filters_by_multiple_sizes_and_colors(self):
+        first = self.make_product('SKU-MULTI-FIRST', 'First Multi Product')
+        ProductVariant.objects.create(
+            product=first, color=self.color, size=self.size_41,
+            sku='VAR-MULTI-FIRST', stock_quantity=1,
+        )
+        second = self.make_product('SKU-MULTI-SECOND', 'Second Multi Product')
+        ProductVariant.objects.create(
+            product=second, color=self.other_color, size=self.size_42,
+            sku='VAR-MULTI-SECOND', stock_quantity=1,
+        )
+        wrong_color = self.make_product('SKU-MULTI-WRONG', 'Wrong Multi Product')
+        ProductVariant.objects.create(
+            product=wrong_color, color=None, size=self.size_41,
+            sku='VAR-MULTI-WRONG', stock_quantity=1,
+        )
+
+        response = self.client.get(
+            self.list_url,
+            {
+                'size': f'{self.size_41.value},{self.size_42.id}',
+                'color': f'{self.color.slug},{self.other_color.id}',
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item['slug'] for item in self.response_items(response)},
+            {first.slug, second.slug},
+        )
+
     def test_product_list_filters_by_is_new(self):
         matching = self.make_product('SKU-NEW-MATCH', 'New Match Product', is_new=True)
         self.make_product('SKU-NEW-OTHER', 'New Other Product', is_new=False)

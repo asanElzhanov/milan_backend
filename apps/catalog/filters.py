@@ -82,9 +82,14 @@ class ProductFilter(django_filters.FilterSet):
         return with_product_list_annotations(queryset).filter(_min_price__lte=value)
 
     def filter_brand(self, queryset, name, value):
-        if value.isdigit():
-            return queryset.filter(brand_id=value)
-        return queryset.filter(brand__slug=value)
+        values = self._get_multiple_values(name, value)
+        brand_filter = Q()
+        for item in values:
+            if item.isdigit():
+                brand_filter |= Q(brand_id=item)
+            else:
+                brand_filter |= Q(brand__slug=item)
+        return queryset.filter(brand_filter)
 
     def filter_category(self, queryset, name, value):
         category_queryset = Category.objects.all()
@@ -100,28 +105,44 @@ class ProductFilter(django_filters.FilterSet):
         return queryset.filter(category_id__in=category_ids)
 
     def filter_color(self, queryset, name, value):
+        values = self._get_multiple_values(name, value)
         variants = ProductVariant.objects.filter(
             product=OuterRef('pk'),
             is_active=True,
         )
-        if value.isdigit():
-            variants = variants.filter(color_id=value)
-        else:
-            variants = variants.filter(color__slug=value)
+        color_filter = Q()
+        for item in values:
+            if item.isdigit():
+                color_filter |= Q(color_id=item)
+            else:
+                color_filter |= Q(color__slug=item)
+        variants = variants.filter(color_filter)
         return queryset.filter(Exists(variants))
 
     def filter_size(self, queryset, name, value):
+        values = self._get_multiple_values(name, value)
         variants = ProductVariant.objects.filter(
             product=OuterRef('pk'),
             is_active=True,
         )
-        if value.isdigit():
-            variants = variants.filter(
-                models.Q(size_id=value) | models.Q(size__value=value)
-            )
-        else:
-            variants = variants.filter(size__value=value)
+        size_filter = Q()
+        for item in values:
+            if item.isdigit():
+                size_filter |= Q(size_id=item) | Q(size__value=item)
+            else:
+                size_filter |= Q(size__value=item)
+        variants = variants.filter(size_filter)
         return queryset.filter(Exists(variants))
+
+    def _get_multiple_values(self, name, value):
+        """Accept both repeated query params and comma-separated values."""
+        raw_values = self.data.getlist(name) if hasattr(self.data, 'getlist') else [value]
+        return [
+            item.strip()
+            for raw_value in raw_values
+            for item in str(raw_value).split(',')
+            if item.strip()
+        ]
 
     def filter_in_stock(self, queryset, name, value):
         if value:
