@@ -106,6 +106,7 @@ def checkout_response(request):
         context={
             'cart': cart,
             'user': request.user if request.user.is_authenticated else None,
+            'anonymous_id_hash': getattr(request, 'recommendation_anonymous_id_hash', ''),
         }
     )
     serializer.is_valid(raise_exception=True)
@@ -159,6 +160,7 @@ class CartAddView(APIView):
                 cart=cart,
                 variant=serializer.validated_data['variant_id'],
                 quantity=serializer.validated_data['quantity'],
+                anonymous_id_hash=getattr(request, 'recommendation_anonymous_id_hash', ''),
             )
             cart = load_cart_for_response(cart)
         except CartError as exc:
@@ -189,6 +191,7 @@ class CartItemUpdateView(APIView):
                 cart=cart,
                 item_id=pk,
                 quantity=serializer.validated_data['quantity'],
+                anonymous_id_hash=getattr(request, 'recommendation_anonymous_id_hash', ''),
             )
             cart = load_cart_for_response(cart)
         except CartError as exc:
@@ -204,7 +207,11 @@ class CartItemUpdateView(APIView):
     def delete(self, request, pk):
         try:
             cart = get_current_cart(request)
-            cart = CartService.remove_item_by_id(cart=cart, item_id=pk)
+            cart = CartService.remove_item_by_id(
+                cart=cart,
+                item_id=pk,
+                anonymous_id_hash=getattr(request, 'recommendation_anonymous_id_hash', ''),
+            )
             cart = load_cart_for_response(cart)
         except CartError as exc:
             return cart_error_response(exc)
@@ -224,7 +231,11 @@ class CartItemDeleteView(APIView):
     def delete(self, request, pk):
         try:
             cart = get_current_cart(request)
-            cart = CartService.remove_item_by_id(cart=cart, item_id=pk)
+            cart = CartService.remove_item_by_id(
+                cart=cart,
+                item_id=pk,
+                anonymous_id_hash=getattr(request, 'recommendation_anonymous_id_hash', ''),
+            )
             cart = load_cart_for_response(cart)
         except CartError as exc:
             return cart_error_response(exc)
@@ -244,7 +255,10 @@ class CartClearView(APIView):
     def delete(self, request):
         try:
             cart = get_current_cart(request)
-            cart = CartService.clear_cart(cart)
+            cart = CartService.clear_cart(
+                cart,
+                anonymous_id_hash=getattr(request, 'recommendation_anonymous_id_hash', ''),
+            )
             cart = load_cart_for_response(cart)
         except CartError as exc:
             return cart_error_response(exc)

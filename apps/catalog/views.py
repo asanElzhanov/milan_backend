@@ -607,22 +607,19 @@ class ProductSimilarView(generics.ListAPIView):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Product.objects.none()
+        from apps.recommendations.constants import RecommendationContext
+        from apps.recommendations.services import ProductEligibilityService, RecommendationService
+
         product = get_object_or_404(
             Product.objects.filter(is_active=True),
             slug=self.kwargs['slug'],
         )
-        queryset = with_product_list_annotations(
-            Product.objects.filter(category=product.category, is_active=True)
-            .select_related('category', 'brand')
-            .exclude(pk=product.pk)
+        product_ids = RecommendationService.similar_product_ids(product, limit=8)
+        return ProductEligibilityService.hydrate(
+            product_ids,
+            context=RecommendationContext.PRODUCT,
+            exclude_ids={product.id},
         )
-        return queryset.prefetch_related(
-            Prefetch('images', queryset=ProductImage.objects.order_by('sort_order', 'id')),
-            Prefetch(
-                'variants',
-                queryset=ProductVariant.objects.filter(is_active=True).select_related('color', 'size'),
-            ),
-        ).order_by('-orders_count')[:8]
 
     @extend_schema(
         tags=['Catalog / Products'],

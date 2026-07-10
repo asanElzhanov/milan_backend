@@ -169,6 +169,10 @@ class Wishlist(models.Model):
         verbose_name = _('избранное')
         verbose_name_plural = _('избранное')
         unique_together = ('user', 'product')
+        indexes = [
+            models.Index(fields=['user', 'added_at'], name='acct_wish_user_added_idx'),
+            models.Index(fields=['product', 'added_at'], name='acct_wish_prod_added_idx'),
+        ]
 
 
 class OTPCode(models.Model):

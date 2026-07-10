@@ -259,6 +259,7 @@ class CheckoutSerializer(serializers.Serializer):
             delivery_method=validated_data['delivery_method'],
             promo_code=validated_data.get('promo_code') or None,
             comment=validated_data.get('comment', ''),
+            anonymous_id_hash=self.context.get('anonymous_id_hash', ''),
         )
 
 

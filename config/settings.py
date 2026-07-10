@@ -37,6 +37,7 @@ LOCAL_APPS = [
     'apps.orders',
     'apps.payments',
     'apps.notifications',
+    'apps.recommendations',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -50,6 +51,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.recommendations.middleware.RecommendationAnonymousActorMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -86,17 +88,20 @@ DATABASES = {
 }
 
 # --- Cache / Redis ---
+REDIS_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
+CACHE_REDIS_URL = config('CACHE_REDIS_URL', default=REDIS_URL)
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/1'),
+        'LOCATION': CACHE_REDIS_URL,
+        'KEY_PREFIX': config('CACHE_KEY_PREFIX', default='shop'),
         'OPTIONS': {'CLIENT_CLASS': 'django_redis.client.DefaultClient'},
     }
 }
 
 # --- Celery ---
-CELERY_BROKER_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
-CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=REDIS_URL)
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=REDIS_URL)
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 
@@ -133,6 +138,105 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 24,
+    'DEFAULT_THROTTLE_RATES': {
+        'recommendation_events': config('RECOMMENDATION_EVENTS_RATE', default='60/min'),
+    },
+}
+
+# --- Recommendations ---
+RECOMMENDATIONS_ENABLED = config('RECOMMENDATIONS_ENABLED', default=True, cast=bool)
+RECOMMENDATION_ALGORITHM_VERSION = config('RECOMMENDATION_ALGORITHM_VERSION', default='v1')
+RECOMMENDATION_EVENT_WEIGHTS = {
+    'view': 1.0,
+    'search': 0.0,
+    'search_click': 2.0,
+    'favorite_add': 4.0,
+    'favorite_remove': -4.0,
+    'cart_add': 5.0,
+    'cart_remove': -4.0,
+    'order_created': 2.0,
+    'purchase': 10.0,
+    'order_cancel': -10.0,
+    'return': -12.0,
+    'rating': 0.0,
+    'recommendation_impression': 0.0,
+    'recommendation_click': 2.0,
+    'recommendation_hide': -10.0,
+}
+RECOMMENDATION_RATING_WEIGHTS = {1: -8.0, 2: -4.0, 3: 0.0, 4: 4.0, 5: 8.0}
+RECOMMENDATION_EVENT_HALF_LIFE_DAYS = {
+    'view': 7,
+    'search': 7,
+    'search_click': 14,
+    'favorite_add': 90,
+    'favorite_remove': 90,
+    'cart_add': 30,
+    'cart_remove': 30,
+    'order_created': 30,
+    'purchase': 180,
+    'order_cancel': 180,
+    'return': 365,
+    'rating': 365,
+    'recommendation_impression': 14,
+    'recommendation_click': 14,
+    'recommendation_hide': 180,
+}
+RECOMMENDATION_MAX_CANDIDATES = config('RECOMMENDATION_MAX_CANDIDATES', default=300, cast=int)
+RECOMMENDATION_SEED_PRODUCTS = config('RECOMMENDATION_SEED_PRODUCTS', default=30, cast=int)
+RECOMMENDATION_MAX_PER_CATEGORY = config('RECOMMENDATION_MAX_PER_CATEGORY', default=4, cast=int)
+RECOMMENDATION_MAX_RESULTS = config('RECOMMENDATION_MAX_RESULTS', default=100, cast=int)
+RECOMMENDATION_RELATIONS_PER_PRODUCT = config('RECOMMENDATION_RELATIONS_PER_PRODUCT', default=100, cast=int)
+RECOMMENDATION_CO_PURCHASE_MIN_SUPPORT = config('RECOMMENDATION_CO_PURCHASE_MIN_SUPPORT', default=2, cast=int)
+RECOMMENDATION_RECENT_PURCHASE_DAYS = config('RECOMMENDATION_RECENT_PURCHASE_DAYS', default=30, cast=int)
+RECOMMENDATION_EVENT_BATCH_LIMIT = config('RECOMMENDATION_EVENT_BATCH_LIMIT', default=20, cast=int)
+RECOMMENDATION_VIEW_DEDUP_MINUTES = config('RECOMMENDATION_VIEW_DEDUP_MINUTES', default=30, cast=int)
+RECOMMENDATION_MAX_VIEWS_PER_DAY = config('RECOMMENDATION_MAX_VIEWS_PER_DAY', default=3, cast=int)
+RECOMMENDATION_EVENT_RETENTION_DAYS = config('RECOMMENDATION_EVENT_RETENTION_DAYS', default=395, cast=int)
+RECOMMENDATION_SEARCH_RETENTION_DAYS = config('RECOMMENDATION_SEARCH_RETENTION_DAYS', default=60, cast=int)
+RECOMMENDATION_GENERATION_RETENTION_DAYS = config('RECOMMENDATION_GENERATION_RETENTION_DAYS', default=30, cast=int)
+RECOMMENDATION_MAX_GENERATIONS = config('RECOMMENDATION_MAX_GENERATIONS', default=5, cast=int)
+RECOMMENDATION_GENERATION_EXPIRY_HOURS = config('RECOMMENDATION_GENERATION_EXPIRY_HOURS', default=24, cast=int)
+RECOMMENDATION_SEARCH_QUERY_ENABLED = config('RECOMMENDATION_SEARCH_QUERY_ENABLED', default=False, cast=bool)
+RECOMMENDATION_TASK_BATCH_SIZE = config('RECOMMENDATION_TASK_BATCH_SIZE', default=500, cast=int)
+RECOMMENDATION_ANONYMOUS_COOKIE_NAME = config('RECOMMENDATION_ANONYMOUS_COOKIE_NAME', default='reco_actor')
+RECOMMENDATION_ANONYMOUS_COOKIE_AGE = config('RECOMMENDATION_ANONYMOUS_COOKIE_AGE', default=31536000, cast=int)
+RECOMMENDATION_CACHE_TTLS = {
+    'personal': config('RECOMMENDATION_CACHE_PERSONAL_TTL', default=1800, cast=int),
+    'popular': config('RECOMMENDATION_CACHE_POPULAR_TTL', default=900, cast=int),
+    'similar': config('RECOMMENDATION_CACHE_SIMILAR_TTL', default=14400, cast=int),
+    'bought_together': config('RECOMMENDATION_CACHE_BOUGHT_TTL', default=43200, cast=int),
+    'cart': config('RECOMMENDATION_CACHE_CART_TTL', default=300, cast=int),
+}
+
+CELERY_BEAT_SCHEDULE = {
+    'recommendations-popularity': {
+        'task': 'recommendations.aggregate_product_popularity',
+        'schedule': timedelta(minutes=config('RECOMMENDATION_POPULARITY_MINUTES', default=30, cast=int)),
+    },
+    'recommendations-preferences': {
+        'task': 'recommendations.rebuild_user_category_preferences',
+        'schedule': timedelta(hours=config('RECOMMENDATION_PREFERENCES_HOURS', default=1, cast=int)),
+    },
+    'recommendations-content-relations': {
+        'task': 'recommendations.rebuild_content_relations',
+        'schedule': timedelta(hours=config('RECOMMENDATION_CONTENT_HOURS', default=24, cast=int)),
+    },
+    'recommendations-co-purchase': {
+        'task': 'recommendations.rebuild_co_purchase_relations',
+        'schedule': timedelta(hours=config('RECOMMENDATION_CO_PURCHASE_HOURS', default=24, cast=int)),
+    },
+    'recommendations-personal': {
+        'task': 'recommendations.generate_user_recommendations',
+        'schedule': timedelta(hours=config('RECOMMENDATION_GENERATION_HOURS', default=6, cast=int)),
+    },
+    'recommendations-cleanup': {
+        'task': 'recommendations.cleanup_recommendation_data',
+        'schedule': timedelta(hours=config('RECOMMENDATION_CLEANUP_HOURS', default=24, cast=int)),
+    },
+    'recommendations-reconcile': {
+        'task': 'recommendations.reconcile_recommendation_aggregates',
+        'schedule': timedelta(hours=config('RECOMMENDATION_RECONCILE_HOURS', default=24, cast=int)),
+    },
 }
 
 # --- Spectacular (Swagger) ---

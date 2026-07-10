@@ -123,6 +123,10 @@ class Order(models.Model):
             models.Index(fields=['email']),
             models.Index(fields=['delivery_method_ref'], name='orders_orde_deliver_186dd8_idx'),
             models.Index(fields=['promo_code']),
+            models.Index(
+                fields=['payment_status', 'status', 'created_at'],
+                name='order_pay_status_created_idx',
+            ),
         ]
         constraints = [
             models.CheckConstraint(
@@ -407,6 +411,9 @@ class OrderItem(models.Model):
         verbose_name = _('позиция заказа')
         verbose_name_plural = _('позиции заказа')
         ordering = ['id']
+        indexes = [
+            models.Index(fields=['order', 'variant'], name='order_item_order_var_idx'),
+        ]
         constraints = [
             models.CheckConstraint(
                 check=Q(quantity__gt=0),

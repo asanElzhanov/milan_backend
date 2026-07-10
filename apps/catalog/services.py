@@ -107,6 +107,19 @@ class ReviewModerationService:
                 'moderation_comment', 'updated_at',
             ])
             ReviewRatingService.recalculate_product_rating(locked_review.product)
+            if old_status != Review.Status.PUBLISHED and status == Review.Status.PUBLISHED:
+                from apps.recommendations.constants import EventSource, EventType, RecommendationContext
+                from apps.recommendations.services import RecommendationEventService
+
+                RecommendationEventService.record_business_event(
+                    event_type=EventType.RATING,
+                    source=EventSource.REVIEW,
+                    user=locked_review.user,
+                    product=locked_review.product,
+                    context=RecommendationContext.PRODUCT,
+                    value=locked_review.rating,
+                    deduplication_key=f'rating:{locked_review.id}',
+                )
             from apps.notifications.services import EmailNotificationService
 
             if old_status == status:

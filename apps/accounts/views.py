@@ -1,4 +1,6 @@
 from drf_spectacular.utils import OpenApiResponse, OpenApiTypes, extend_schema, inline_serializer
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,6 +16,7 @@ from .serializers import (
 )
 from .services import check_otp_request_allowed, create_otp_code
 from apps.notifications.tasks import send_otp_task
+from apps.catalog.models import Product
 
 
 logger = logging.getLogger(__name__)
@@ -300,13 +303,36 @@ class WishlistToggleView(APIView):
         responses={200: StatusResponseSerializer, 201: StatusResponseSerializer},
     )
     def post(self, request, product_id):
-        item, created = Wishlist.objects.get_or_create(
-            user=request.user,
-            product_id=product_id,
-        )
-        if not created:
-            item.delete()
-            return Response({'status': 'removed'})
+        from apps.recommendations.constants import EventSource, EventType, RecommendationContext
+        from apps.recommendations.services import RecommendationEventService
+
+        product = get_object_or_404(Product.objects.filter(is_active=True), pk=product_id)
+        with transaction.atomic():
+            item = Wishlist.objects.select_for_update().filter(
+                user=request.user,
+                product=product,
+            ).first()
+            if item is not None:
+                item_id = item.id
+                RecommendationEventService.record_business_event(
+                    event_type=EventType.FAVORITE_REMOVE,
+                    source=EventSource.WISHLIST,
+                    user=request.user,
+                    product=product,
+                    context=RecommendationContext.HOME,
+                    deduplication_key=f'favorite_remove:{item_id}',
+                )
+                item.delete()
+                return Response({'status': 'removed'})
+            item = Wishlist.objects.create(user=request.user, product=product)
+            RecommendationEventService.record_business_event(
+                event_type=EventType.FAVORITE_ADD,
+                source=EventSource.WISHLIST,
+                user=request.user,
+                product=product,
+                context=RecommendationContext.HOME,
+                deduplication_key=f'favorite_add:{item.id}',
+            )
         return Response({'status': 'added'}, status=status.HTTP_201_CREATED)
 
 

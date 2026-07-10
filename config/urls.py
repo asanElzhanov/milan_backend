@@ -22,6 +22,7 @@ urlpatterns = [
     path(API_V1 + 'orders/', include('apps.orders.urls')),
     path(API_V1 + 'payments/', include('apps.payments.urls')),
     path(API_V1 + 'notifications/', include('apps.notifications.urls')),
+    path(API_V1 + 'recommendations/', include('apps.recommendations.urls')),
 ]
 
 if settings.DEBUG:
