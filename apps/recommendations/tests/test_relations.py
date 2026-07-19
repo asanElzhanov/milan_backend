@@ -14,17 +14,17 @@ class RelationTests(TestCase):
         left = make_product(
             category=category,
             brand=brand,
-            material='cotton',
-            composition='cotton wool',
-            description='warm blue shirt',
+            material_ru='cotton',
+            composition_ru='cotton wool',
+            description_ru='warm blue shirt',
             season='aw',
         )
         right = make_product(
             category=category,
             brand=brand,
-            material='cotton',
-            composition='cotton',
-            description='warm shirt',
+            material_ru='cotton',
+            composition_ru='cotton',
+            description_ru='warm shirt',
             season='aw',
         )
         score, components = ProductRelationService.content_components(left, right)
@@ -35,8 +35,8 @@ class RelationTests(TestCase):
 
     def test_content_rebuild_is_idempotent(self):
         category = make_category()
-        left = make_product(category=category, description='same words')
-        right = make_product(category=category, description='same words')
+        left = make_product(category=category, description_ru='same words')
+        right = make_product(category=category, description_ru='same words')
         first = ProductRelationService.rebuild_content_relations([left.id, right.id])
         second = ProductRelationService.rebuild_content_relations([left.id, right.id])
         self.assertEqual(first, second)

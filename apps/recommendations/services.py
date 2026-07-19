@@ -676,16 +676,16 @@ class ProductRelationService:
             'category': cls._category_similarity(source.category, target.category),
             'brand': None if not source.brand_id or not target.brand_id else float(source.brand_id == target.brand_id),
             'material_composition': token_overlap(
-                f'{source.material} {source.composition}',
-                f'{target.material} {target.composition}',
+                f'{source.material_ru} {source.composition_ru}',
+                f'{target.material_ru} {target.composition_ru}',
             ),
             'season': None if not source.season or not target.season else float(source.season == target.season),
             'price': price_proximity(source.price, target.price),
             'color': set_overlap(source_colors, target_colors),
             'size': set_overlap(source_sizes, target_sizes),
             'text': token_overlap(
-                f'{source.name} {source.description}',
-                f'{target.name} {target.description}',
+                f'{source.name_ru} {source.description_ru}',
+                f'{target.name_ru} {target.description_ru}',
             ),
         }
         used_weight = sum(cls.COMPONENT_WEIGHTS[key] for key, value in components.items() if value is not None)

@@ -25,7 +25,7 @@ def make_user(**kwargs):
 
 def make_category(parent=None, **kwargs):
     number = next_number()
-    defaults = {'name': f'Category {number}', 'slug': f'category-{number}', 'parent': parent}
+    defaults = {'name_ru': f'Category {number}', 'slug': f'category-{number}', 'parent': parent}
     defaults.update(kwargs)
     return Category.objects.create(**defaults)
 
@@ -35,7 +35,7 @@ def make_product(category=None, *, with_variant=True, stock=10, variant_active=T
     category = category or make_category()
     defaults = {
         'sku': f'PRODUCT-{number}',
-        'name': f'Product {number}',
+        'name_ru': f'Product {number}',
         'slug': f'product-{number}',
         'category': category,
         'price': Decimal('100.00'),
@@ -54,7 +54,7 @@ def make_product(category=None, *, with_variant=True, stock=10, variant_active=T
 
 def make_brand(**kwargs):
     number = next_number()
-    defaults = {'name': f'Brand {number}', 'slug': f'brand-{number}'}
+    defaults = {'name_ru': f'Brand {number}', 'slug': f'brand-{number}'}
     defaults.update(kwargs)
     return Brand.objects.create(**defaults)
 
@@ -66,7 +66,7 @@ def make_cart(user=None):
 def make_delivery_method(**kwargs):
     number = next_number()
     defaults = {
-        'name': f'Delivery {number}',
+        'name_ru': f'Delivery {number}',
         'code': f'delivery-{number}',
         'slug': f'delivery-{number}',
         'delivery_type': DeliveryMethod.DeliveryType.COURIER,
@@ -96,7 +96,7 @@ def add_order_item(order, product, quantity=1):
     return OrderItem.objects.create(
         order=order,
         variant=variant,
-        product_name=product.name,
+        product_name=product.name_ru,
         product_slug=product.slug,
         sku=variant.sku,
         unit_price=product.price,
