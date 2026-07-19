@@ -16,11 +16,11 @@ from apps.orders.services import (
 
 class CartServiceTests(TestCase):
     def setUp(self):
-        self.category = Category.objects.create(name='Shoes', slug='cart-shoes')
-        self.brand = Brand.objects.create(name='Nike', slug='cart-nike')
+        self.category = Category.objects.create(name_ru='Shoes', slug='cart-shoes')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='cart-nike')
         self.product = Product.objects.create(
             sku='SKU-CART-SERVICE',
-            name='Cart Service Product',
+            name_ru='Cart Service Product',
             slug='cart-service-product',
             category=self.category,
             brand=self.brand,

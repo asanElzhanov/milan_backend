@@ -317,7 +317,9 @@ class DeliveryMethod(models.Model):
         MANAGER_CALCULATION = 'manager_calculation', _('Уточняется менеджером')
         FREE = 'free', _('Бесплатная')
 
-    name = models.CharField(_('название'), max_length=120)
+    name_ru = models.CharField(_('название'), max_length=120)
+    name_kz = models.CharField(_('название (каз.)'), max_length=120, blank=True, default='')
+    name_en = models.CharField(_('название (англ.)'), max_length=120, blank=True, default='')
     code = models.CharField(_('код'), max_length=50, unique=True)
     slug = models.SlugField(_('slug'), max_length=80, unique=True)
     delivery_type = models.CharField(
@@ -325,7 +327,9 @@ class DeliveryMethod(models.Model):
         max_length=32,
         choices=DeliveryType.choices,
     )
-    description = models.TextField(_('описание'), blank=True)
+    description_ru = models.TextField(_('описание'), blank=True)
+    description_kz = models.TextField(_('описание (каз.)'), blank=True, default='')
+    description_en = models.TextField(_('описание (англ.)'), blank=True, default='')
     is_active = models.BooleanField(_('активен'), default=True)
     base_price = models.DecimalField(
         _('базовая цена'),
@@ -355,7 +359,7 @@ class DeliveryMethod(models.Model):
     class Meta:
         verbose_name = _('способ доставки')
         verbose_name_plural = _('способы доставки')
-        ordering = ['sort_order', 'name']
+        ordering = ['sort_order', 'name_ru']
         indexes = [
             models.Index(fields=['code'], name='orders_deli_code_e26177_idx'),
             models.Index(fields=['slug'], name='orders_deli_slug_73500e_idx'),
@@ -375,11 +379,11 @@ class DeliveryMethod(models.Model):
         ]
 
     def __str__(self):
-        return self.name
+        return self.name_ru
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.name, allow_unicode=True)
+            self.slug = slugify(self.name_ru, allow_unicode=True)
         super().save(*args, **kwargs)
 
 

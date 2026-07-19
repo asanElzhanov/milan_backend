@@ -348,7 +348,7 @@ class DeliveryMethodListView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        return DeliveryMethod.objects.filter(is_active=True).order_by('sort_order', 'name')
+        return DeliveryMethod.objects.filter(is_active=True).order_by('sort_order', 'name_ru')
 
     @extend_schema(
         tags=['Orders / Delivery Methods'],

@@ -676,11 +676,11 @@ class CheckoutService:
                 items_subtotal += total_price
                 order_items_data.append({
                     'variant': variant,
-                    'product_name': variant.product.name,
+                    'product_name': variant.product.name_ru,
                     'product_slug': variant.product.slug,
                     'sku': variant.sku,
                     'size_name': variant.size.value if variant.size else '',
-                    'color_name': variant.color.name if variant.color else '',
+                    'color_name': variant.color.name_ru if variant.color else '',
                     'unit_price': unit_price,
                     'quantity': item.quantity,
                     'total_price': total_price,
@@ -718,7 +718,7 @@ class CheckoutService:
                 delivery_method=delivery_method.code,
                 delivery_method_ref=delivery_method,
                 delivery_method_code=delivery_method.code,
-                delivery_method_name=delivery_method.name,
+                delivery_method_name=delivery_method.name_ru,
                 items_total=items_subtotal,
                 delivery_price=delivery.delivery_price,
                 delivery_requires_manager_calculation=delivery.requires_manager_calculation,

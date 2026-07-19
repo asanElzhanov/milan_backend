@@ -10,11 +10,11 @@ from apps.orders.models import Order, OrderItem, OrderStatusHistory
 
 class OrderHistoryApiTests(APITestCase):
     def setUp(self):
-        category = Category.objects.create(name='Shoes', slug='history-shoes')
-        brand = Brand.objects.create(name='Nike', slug='history-nike')
+        category = Category.objects.create(name_ru='Shoes', slug='history-shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='history-nike')
         product = Product.objects.create(
             sku='SKU-HISTORY',
-            name='History Product',
+            name_ru='History Product',
             slug='history-product',
             category=category,
             brand=brand,

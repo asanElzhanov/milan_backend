@@ -8,8 +8,9 @@ class DeliveryMethodSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeliveryMethod
         fields = (
-            'id', 'name', 'code', 'slug', 'delivery_type',
-            'description', 'is_active', 'base_price', 'price_type',
+            'id', 'name_ru', 'name_kz', 'name_en', 'code', 'slug', 'delivery_type',
+            'description_ru', 'description_kz', 'description_en',
+            'is_active', 'base_price', 'price_type',
             'free_from_amount', 'sort_order',
         )
 
@@ -17,7 +18,10 @@ class DeliveryMethodSerializer(serializers.ModelSerializer):
 class CartItemSerializer(serializers.ModelSerializer):
     variant_id = serializers.IntegerField(source='variant.id', read_only=True)
     product_id = serializers.IntegerField(source='variant.product.id', read_only=True)
-    product_name = serializers.CharField(source='variant.product.name', read_only=True)
+    product_name = serializers.CharField(source='variant.product.name_ru', read_only=True)
+    product_name_ru = serializers.CharField(source='variant.product.name_ru', read_only=True)
+    product_name_kz = serializers.CharField(source='variant.product.name_kz', read_only=True)
+    product_name_en = serializers.CharField(source='variant.product.name_en', read_only=True)
     product_slug = serializers.CharField(source='variant.product.slug', read_only=True)
     sku = serializers.CharField(source='variant.sku', read_only=True)
     color = serializers.SerializerMethodField()
@@ -31,14 +35,15 @@ class CartItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = CartItem
         fields = (
-            'id', 'variant_id', 'product_id', 'product_name', 'product_slug',
+            'id', 'variant_id', 'product_id', 'product_name',
+            'product_name_ru', 'product_name_kz', 'product_name_en', 'product_slug',
             'sku', 'size', 'color', 'quantity', 'unit_price', 'line_total',
             'image', 'available_stock', 'in_stock',
         )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_color(self, obj):
-        return obj.variant.color.name if obj.variant.color else None
+        return obj.variant.color.name_ru if obj.variant.color else None
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_size(self, obj):

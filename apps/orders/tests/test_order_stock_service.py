@@ -9,11 +9,11 @@ from apps.orders.serializers import OrderCreateSerializer
 
 class OrderStockServiceTests(TestCase):
     def setUp(self):
-        category = Category.objects.create(name='Shoes', slug='shoes')
-        brand = Brand.objects.create(name='Nike', slug='nike')
+        category = Category.objects.create(name_ru='Shoes', slug='shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='nike')
         product = Product.objects.create(
             sku='SKU-ORDER-STOCK',
-            name='Order Stock Product',
+            name_ru='Order Stock Product',
             slug='order-stock-product',
             category=category,
             brand=brand,

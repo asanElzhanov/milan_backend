@@ -11,11 +11,11 @@ from apps.orders.services import CartService
 
 class UserCartApiTests(APITestCase):
     def setUp(self):
-        category = Category.objects.create(name='Shoes', slug='user-cart-shoes')
-        brand = Brand.objects.create(name='Nike', slug='user-cart-nike')
+        category = Category.objects.create(name_ru='Shoes', slug='user-cart-shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='user-cart-nike')
         self.product = Product.objects.create(
             sku='SKU-USER-CART',
-            name='User Cart Product',
+            name_ru='User Cart Product',
             slug='user-cart-product',
             category=category,
             brand=brand,

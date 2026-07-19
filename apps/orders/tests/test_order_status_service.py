@@ -14,11 +14,11 @@ from apps.orders.services import (
 
 class OrderStatusServiceTests(TestCase):
     def setUp(self):
-        category = Category.objects.create(name='Shoes', slug='status-shoes')
-        brand = Brand.objects.create(name='Nike', slug='status-nike')
+        category = Category.objects.create(name_ru='Shoes', slug='status-shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='status-nike')
         product = Product.objects.create(
             sku='SKU-STATUS',
-            name='Status Product',
+            name_ru='Status Product',
             slug='status-product',
             category=category,
             brand=brand,

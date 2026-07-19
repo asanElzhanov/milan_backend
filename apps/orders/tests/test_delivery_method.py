@@ -31,7 +31,7 @@ class DeliveryMethodModelTests(TestCase):
 
     def test_code_is_unique(self):
         DeliveryMethod.objects.create(
-            name='Express',
+            name_ru='Express',
             code='express',
             slug='express',
             delivery_type=DeliveryMethod.DeliveryType.COURIER,
@@ -39,7 +39,7 @@ class DeliveryMethodModelTests(TestCase):
 
         with self.assertRaises(IntegrityError):
             DeliveryMethod.objects.create(
-                name='Express Copy',
+                name_ru='Express Copy',
                 code='express',
                 slug='express-copy',
                 delivery_type=DeliveryMethod.DeliveryType.COURIER,
@@ -47,7 +47,7 @@ class DeliveryMethodModelTests(TestCase):
 
     def test_slug_is_unique(self):
         DeliveryMethod.objects.create(
-            name='Express',
+            name_ru='Express',
             code='express',
             slug='express',
             delivery_type=DeliveryMethod.DeliveryType.COURIER,
@@ -55,7 +55,7 @@ class DeliveryMethodModelTests(TestCase):
 
         with self.assertRaises(IntegrityError):
             DeliveryMethod.objects.create(
-                name='Express Copy',
+                name_ru='Express Copy',
                 code='express-copy',
                 slug='express',
                 delivery_type=DeliveryMethod.DeliveryType.COURIER,
@@ -63,7 +63,7 @@ class DeliveryMethodModelTests(TestCase):
 
     def test_negative_prices_are_invalid(self):
         method = DeliveryMethod(
-            name='Invalid',
+            name_ru='Invalid',
             code='invalid',
             slug='invalid',
             delivery_type=DeliveryMethod.DeliveryType.COURIER,
@@ -86,7 +86,7 @@ class DeliveryMethodAPITests(APITestCase):
     def setUp(self):
         DeliveryMethod.objects.all().delete()
         self.pickup = DeliveryMethod.objects.create(
-            name='Самовывоз',
+            name_ru='Самовывоз',
             code='pickup',
             slug='pickup',
             delivery_type=DeliveryMethod.DeliveryType.PICKUP,
@@ -94,14 +94,14 @@ class DeliveryMethodAPITests(APITestCase):
             sort_order=20,
         )
         self.courier = DeliveryMethod.objects.create(
-            name='Курьерская доставка',
+            name_ru='Курьерская доставка',
             code='courier',
             slug='courier',
             delivery_type=DeliveryMethod.DeliveryType.COURIER,
             sort_order=10,
         )
         self.inactive = DeliveryMethod.objects.create(
-            name='Archive',
+            name_ru='Archive',
             code='archive',
             slug='archive',
             delivery_type=DeliveryMethod.DeliveryType.COURIER,
@@ -131,7 +131,7 @@ class DeliveryMethodAPITests(APITestCase):
 class DeliveryServiceTests(TestCase):
     def make_method(self, **overrides):
         data = {
-            'name': 'Delivery',
+            'name_ru': 'Delivery',
             'code': 'delivery',
             'slug': 'delivery',
             'delivery_type': DeliveryMethod.DeliveryType.COURIER,

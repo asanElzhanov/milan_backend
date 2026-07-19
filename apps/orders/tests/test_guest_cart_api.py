@@ -13,13 +13,13 @@ from apps.orders.services import CartService
 
 class GuestCartApiTests(APITestCase):
     def setUp(self):
-        category = Category.objects.create(name='Shoes', slug='guest-cart-shoes')
-        brand = Brand.objects.create(name='Nike', slug='guest-cart-nike')
-        self.color = Color.objects.create(name='Black', slug='guest-cart-black', hex_code='#000000')
+        category = Category.objects.create(name_ru='Shoes', slug='guest-cart-shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='guest-cart-nike')
+        self.color = Color.objects.create(name_ru='Black', slug='guest-cart-black', hex_code='#000000')
         self.size = Size.objects.create(value='42', size_type=Size.SizeType.SHOES, sort_order=1)
         self.product = Product.objects.create(
             sku='SKU-GUEST-CART',
-            name='Guest Cart Product',
+            name_ru='Guest Cart Product',
             slug='guest-cart-product',
             category=category,
             brand=brand,
@@ -77,11 +77,11 @@ class GuestCartApiTests(APITestCase):
         self.assertEqual(item['id'], item_id)
         self.assertEqual(item['variant_id'], self.variant.id)
         self.assertEqual(item['product_id'], self.product.id)
-        self.assertEqual(item['product_name'], self.product.name)
+        self.assertEqual(item['product_name'], self.product.name_ru)
         self.assertEqual(item['product_slug'], self.product.slug)
         self.assertEqual(item['sku'], self.variant.sku)
         self.assertEqual(item['size'], self.size.value)
-        self.assertEqual(item['color'], self.color.name)
+        self.assertEqual(item['color'], self.color.name_ru)
         self.assertEqual(item['unit_price'], '120.00')
         self.assertEqual(item['line_total'], '240.00')
         self.assertEqual(item['available_stock'], 5)
