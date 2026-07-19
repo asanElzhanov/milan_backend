@@ -35,11 +35,11 @@ class StaffNotificationFlowTests(TestCase):
             role=User.Role.ADMIN,
         )
         self.customer = User.objects.create_user(email='staff-customer@example.com')
-        self.category = Category.objects.create(name='Shoes', slug='staff-shoes')
-        self.brand = Brand.objects.create(name='Nike', slug='staff-nike')
+        self.category = Category.objects.create(name_ru='Shoes', slug='staff-shoes')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='staff-nike')
         self.product = Product.objects.create(
             sku='SKU-STAFF',
-            name='Staff Product',
+            name_ru='Staff Product',
             slug='staff-product',
             category=self.category,
             brand=self.brand,
@@ -69,7 +69,7 @@ class StaffNotificationFlowTests(TestCase):
         OrderItem.objects.create(
             order=order,
             variant=self.variant,
-            product_name=self.product.name,
+            product_name=self.product.name_ru,
             product_slug=self.product.slug,
             sku=self.variant.sku,
             unit_price=Decimal('100.00'),
@@ -144,7 +144,7 @@ class StaffNotificationFlowTests(TestCase):
             )
 
         notifications = self.assert_staff_notified(Notification.EventType.REVIEW_CREATED)
-        self.assertTrue(notifications.filter(message__contains=self.product.name).exists())
+        self.assertTrue(notifications.filter(message__contains=self.product.name_ru).exists())
 
     def test_sale_that_crosses_below_threshold_creates_low_stock_notification(self):
         self.variant.stock_quantity = 5
@@ -155,7 +155,7 @@ class StaffNotificationFlowTests(TestCase):
 
         notifications = self.assert_staff_notified(Notification.EventType.LOW_STOCK)
         message = notifications.first().message
-        self.assertIn(self.product.name, message)
+        self.assertIn(self.product.name_ru, message)
         self.assertIn(self.variant.sku, message)
         self.assertIn('Текущий остаток: 2', message)
         self.assertIn('Порог: 3', message)
