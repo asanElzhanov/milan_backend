@@ -11,7 +11,9 @@ class StaticPageListView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        return StaticPage.objects.active().only('id', 'slug', 'title').order_by('title')
+        return StaticPage.objects.active().only(
+            'id', 'slug', 'title_ru', 'title_kz', 'title_en',
+        ).order_by('title_ru')
 
     @extend_schema(
         tags=['CMS / Pages'],
@@ -30,7 +32,10 @@ class StaticPageDetailView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         return StaticPage.objects.active().only(
-            'id', 'slug', 'title', 'content', 'seo_title', 'seo_description',
+            'id', 'slug',
+            'title_ru', 'title_kz', 'title_en',
+            'content_ru', 'content_kz', 'content_en',
+            'seo_title', 'seo_description',
         )
 
     @extend_schema(

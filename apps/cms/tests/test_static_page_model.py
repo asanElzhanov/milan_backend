@@ -7,8 +7,8 @@ from apps.cms.models import StaticPage
 class StaticPageModelTests(TestCase):
     def test_generates_slug_from_title(self):
         page = StaticPage.objects.create(
-            title='About Us',
-            content='Company story',
+            title_ru='About Us',
+            content_ru='Company story',
         )
 
         self.assertEqual(page.slug, 'about-us')
@@ -16,21 +16,21 @@ class StaticPageModelTests(TestCase):
 
     def test_generates_unique_slug_from_duplicate_titles(self):
         StaticPage.objects.create(
-            title='Delivery',
-            content='First delivery page',
+            title_ru='Delivery',
+            content_ru='First delivery page',
         )
         second = StaticPage.objects.create(
-            title='Delivery',
-            content='Second delivery page',
+            title_ru='Delivery',
+            content_ru='Second delivery page',
         )
 
         self.assertEqual(second.slug, 'delivery-2')
 
     def test_title_is_required(self):
-        page = StaticPage(slug='privacy-policy', title='   ', content='Privacy content')
+        page = StaticPage(slug='privacy-policy', title_ru='   ', content_ru='Privacy content')
 
         with self.assertRaises(ValidationError) as context:
             page.full_clean()
 
-        self.assertIn('title', context.exception.error_dict)
+        self.assertIn('title_ru', context.exception.error_dict)
 

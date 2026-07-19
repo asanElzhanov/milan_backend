@@ -13,9 +13,9 @@ class StaticPageAdminTests(TestCase):
         )
         self.client.force_login(self.admin_user)
         self.page = StaticPage.objects.create(
-            title='Privacy Policy',
+            title_ru='Privacy Policy',
             slug='privacy-policy',
-            content='Privacy content',
+            content_ru='Privacy content',
         )
 
     def test_static_page_changelist_opens(self):

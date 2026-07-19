@@ -9,16 +9,16 @@ class StaticPageAPITests(APITestCase):
 
     def setUp(self):
         self.page = StaticPage.objects.create(
-            title='Privacy Policy',
+            title_ru='Privacy Policy',
             slug='privacy-policy',
-            content='Privacy content',
+            content_ru='Privacy content',
             seo_title='Privacy SEO',
             seo_description='Privacy description',
         )
         self.inactive_page = StaticPage.objects.create(
-            title='Hidden Terms',
+            title_ru='Hidden Terms',
             slug='hidden-terms',
-            content='Hidden content',
+            content_ru='Hidden content',
             is_active=False,
         )
 
@@ -34,8 +34,8 @@ class StaticPageAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['id'], self.page.id)
         self.assertEqual(response.data['slug'], 'privacy-policy')
-        self.assertEqual(response.data['title'], 'Privacy Policy')
-        self.assertEqual(response.data['content'], 'Privacy content')
+        self.assertEqual(response.data['title_ru'], 'Privacy Policy')
+        self.assertEqual(response.data['content_ru'], 'Privacy content')
 
     def test_inactive_page_is_not_returned_by_slug(self):
         response = self.client.get(self.detail_url(self.inactive_page))
@@ -60,4 +60,4 @@ class StaticPageAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         items = self.response_items(response)
         self.assertEqual([item['slug'] for item in items], ['privacy-policy'])
-        self.assertEqual(set(items[0].keys()), {'id', 'slug', 'title'})
+        self.assertEqual(set(items[0].keys()), {'id', 'slug', 'title_ru', 'title_kz', 'title_en'})
