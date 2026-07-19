@@ -10,7 +10,7 @@ class CategoryAPITests(APITestCase):
 
     def setUp(self):
         self.root = Category.objects.create(
-            name='Shoes',
+            name_ru='Shoes',
             slug='shoes',
             sort_order=1,
             seo_title='Shoes SEO',
@@ -18,19 +18,19 @@ class CategoryAPITests(APITestCase):
             seo_keywords='shoes,sneakers',
         )
         self.child = Category.objects.create(
-            name='Sneakers',
+            name_ru='Sneakers',
             slug='sneakers',
             parent=self.root,
             sort_order=1,
         )
         self.inactive_root = Category.objects.create(
-            name='Archive',
+            name_ru='Archive',
             slug='archive',
             is_active=False,
             sort_order=2,
         )
         self.inactive_child = Category.objects.create(
-            name='Hidden',
+            name_ru='Hidden',
             slug='hidden',
             parent=self.root,
             is_active=False,

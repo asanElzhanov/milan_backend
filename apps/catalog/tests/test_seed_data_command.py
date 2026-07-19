@@ -91,10 +91,10 @@ class SeedDataCommandTests(TestCase):
         self.assertTrue(orders.filter(items__isnull=False).distinct().count(), 3)
 
     def test_reset_removes_only_demo_data(self):
-        Category.objects.create(name='Real Category', slug='real-category')
+        Category.objects.create(name_ru='Real Category', slug='real-category')
         product = Product.objects.create(
             sku='REAL-SKU',
-            name='Real Product',
+            name_ru='Real Product',
             slug='real-product',
             category=Category.objects.get(slug='real-category'),
             price=Decimal('100.00'),

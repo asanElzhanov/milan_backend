@@ -24,12 +24,12 @@ class ProductListApiTests(APITestCase):
         self.override = override_settings(MEDIA_ROOT=self.media_root)
         self.override.enable()
 
-        self.category = Category.objects.create(name='Shoes', slug='shoes')
-        self.other_category = Category.objects.create(name='Bags', slug='bags')
-        self.brand = Brand.objects.create(name='Nike', slug='nike')
-        self.other_brand = Brand.objects.create(name='Adidas', slug='adidas')
-        self.color = Color.objects.create(name='Black', slug='black', hex_code='#000000')
-        self.other_color = Color.objects.create(name='White', slug='white', hex_code='#FFFFFF')
+        self.category = Category.objects.create(name_ru='Shoes', slug='shoes')
+        self.other_category = Category.objects.create(name_ru='Bags', slug='bags')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='nike')
+        self.other_brand = Brand.objects.create(name_ru='Adidas', slug='adidas')
+        self.color = Color.objects.create(name_ru='Black', slug='black', hex_code='#000000')
+        self.other_color = Color.objects.create(name_ru='White', slug='white', hex_code='#FFFFFF')
         self.size_41 = Size.objects.create(value='41', size_type=Size.SizeType.SHOES, sort_order=1)
         self.size_42 = Size.objects.create(value='42', size_type=Size.SizeType.SHOES, sort_order=2)
 
@@ -40,7 +40,7 @@ class ProductListApiTests(APITestCase):
     def make_product(self, sku, name, **kwargs):
         data = {
             'sku': sku,
-            'name': name,
+            'name_ru': name,
             'category': self.category,
             'brand': self.brand,
             'price': Decimal('100.00'),
@@ -237,7 +237,7 @@ class ProductListApiTests(APITestCase):
         self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
 
     def test_product_list_filters_by_parent_category_descendants(self):
-        sneakers = Category.objects.create(name='Sneakers', slug='sneakers', parent=self.category)
+        sneakers = Category.objects.create(name_ru='Sneakers', slug='sneakers', parent=self.category)
         matching = self.make_product('SKU-CATEGORY-TREE', 'Category Tree Product', category=sneakers)
         self.make_product('SKU-CATEGORY-OTHER', 'Other Category Product', category=self.other_category)
 
@@ -247,8 +247,8 @@ class ProductListApiTests(APITestCase):
         self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
 
     def test_product_list_filters_by_subcategory(self):
-        sneakers = Category.objects.create(name='Sneakers', slug='sneakers', parent=self.category)
-        boots = Category.objects.create(name='Boots', slug='boots', parent=self.category)
+        sneakers = Category.objects.create(name_ru='Sneakers', slug='sneakers', parent=self.category)
+        boots = Category.objects.create(name_ru='Boots', slug='boots', parent=self.category)
         matching = self.make_product('SKU-SUBCATEGORY', 'Subcategory Product', category=sneakers)
         self.make_product('SKU-BOOTS', 'Boots Product', category=boots)
 
@@ -556,7 +556,7 @@ class ProductListApiTests(APITestCase):
         self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
 
     def test_product_list_search_combines_with_catalog_filters(self):
-        sneakers = Category.objects.create(name='Search Sneakers', slug='search-sneakers', parent=self.category)
+        sneakers = Category.objects.create(name_ru='Search Sneakers', slug='search-sneakers', parent=self.category)
         matching = self.make_product(
             'SKU-SEARCH-FILTER-MATCH',
             'Trail Runner',
@@ -659,7 +659,7 @@ class ProductListApiTests(APITestCase):
         self.assertEqual([item['slug'] for item in self.response_items(response)], [matching.slug])
 
     def test_product_list_uses_bounded_number_of_queries_with_filters_and_search(self):
-        sneakers = Category.objects.create(name='Perf Sneakers', slug='perf-sneakers', parent=self.category)
+        sneakers = Category.objects.create(name_ru='Perf Sneakers', slug='perf-sneakers', parent=self.category)
         for index in range(3):
             product = self.make_product(
                 f'SKU-PERF-{index}',

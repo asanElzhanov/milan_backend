@@ -26,7 +26,7 @@ class ProductImportTaskTests(TestCase):
             email='import-task-manager@example.com',
             role=User.Role.MANAGER,
         )
-        self.category = Category.objects.create(name='Shoes', slug='shoes')
+        self.category = Category.objects.create(name_ru='Shoes', slug='shoes')
 
     def make_job(self, content, status=ImportJob.Status.PENDING):
         return ImportJob.objects.create(
@@ -134,6 +134,6 @@ class ProductImportTaskTests(TestCase):
         process_product_import.apply(args=(retry_job.id,))
 
         variant.refresh_from_db()
-        self.assertEqual(variant.product.name, 'Updated Task Product')
+        self.assertEqual(variant.product.name_ru, 'Updated Task Product')
         self.assertEqual(variant.product.price, Decimal('120.00'))
         self.assertEqual(variant.stock_quantity, 7)

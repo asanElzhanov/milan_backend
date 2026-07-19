@@ -19,7 +19,8 @@ class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = (
-            'id', 'name', 'slug', 'parent', 'image', 'description',
+            'id', 'name_ru', 'name_kz', 'name_en', 'slug', 'parent', 'image',
+            'description_ru', 'description_kz', 'description_en',
             'is_active', 'sort_order', 'seo_title', 'seo_description',
             'seo_keywords',
         )
@@ -43,13 +44,13 @@ class CategoryTreeSerializer(CategorySerializer):
 class BrandSerializer(serializers.ModelSerializer):
     class Meta:
         model = Brand
-        fields = ('id', 'name', 'slug', 'logo', 'is_active')
+        fields = ('id', 'name_ru', 'name_kz', 'name_en', 'slug', 'logo', 'is_active')
 
 
 class ColorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Color
-        fields = ('id', 'name', 'slug', 'hex_code', 'is_active')
+        fields = ('id', 'name_ru', 'name_kz', 'name_en', 'slug', 'hex_code', 'is_active')
 
 
 class SizeSerializer(serializers.ModelSerializer):
@@ -73,7 +74,8 @@ class ProductMediaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductMedia
         fields = (
-            'id', 'media_type', 'file', 'url', 'title', 'alt_text',
+            'id', 'media_type', 'file', 'url',
+            'title_ru', 'title_kz', 'title_en', 'alt_text',
             'sort_order', 'is_active', 'created_at', 'updated_at',
         )
 
@@ -109,7 +111,10 @@ class ProductVariantSerializer(serializers.ModelSerializer):
 class StockVariantSerializer(serializers.ModelSerializer):
     variant_id = serializers.IntegerField(source='id', read_only=True)
     product_id = serializers.IntegerField(source='product.id', read_only=True)
-    product_name = serializers.CharField(source='product.name', read_only=True)
+    product_name = serializers.CharField(source='product.name_ru', read_only=True)
+    product_name_ru = serializers.CharField(source='product.name_ru', read_only=True)
+    product_name_kz = serializers.CharField(source='product.name_kz', read_only=True)
+    product_name_en = serializers.CharField(source='product.name_en', read_only=True)
     product_slug = serializers.CharField(source='product.slug', read_only=True)
     category = serializers.SerializerMethodField()
     brand = serializers.SerializerMethodField()
@@ -120,7 +125,8 @@ class StockVariantSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductVariant
         fields = (
-            'variant_id', 'product_id', 'product_name', 'product_slug',
+            'variant_id', 'product_id', 'product_name',
+            'product_name_ru', 'product_name_kz', 'product_name_en', 'product_slug',
             'category', 'brand', 'size', 'color',
             'sku', 'stock_quantity', 'is_active', 'in_stock',
         )
@@ -130,14 +136,20 @@ class StockVariantSerializer(serializers.ModelSerializer):
         category = obj.product.category
         if not category:
             return None
-        return {'id': category.id, 'name': category.name, 'slug': category.slug}
+        return {
+            'id': category.id, 'slug': category.slug,
+            'name_ru': category.name_ru, 'name_kz': category.name_kz, 'name_en': category.name_en,
+        }
 
     @extend_schema_field(serializers.DictField())
     def get_brand(self, obj):
         brand = obj.product.brand
         if not brand:
             return None
-        return {'id': brand.id, 'name': brand.name, 'slug': brand.slug}
+        return {
+            'id': brand.id, 'slug': brand.slug,
+            'name_ru': brand.name_ru, 'name_kz': brand.name_kz, 'name_en': brand.name_en,
+        }
 
 
 class StockMovementSerializer(serializers.ModelSerializer):
@@ -156,7 +168,10 @@ class StockMovementSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.DictField())
     def get_product(self, obj):
         product = obj.variant.product
-        return {'id': product.id, 'name': product.name, 'slug': product.slug}
+        return {
+            'id': product.id, 'slug': product.slug,
+            'name_ru': product.name_ru, 'name_kz': product.name_kz, 'name_en': product.name_en,
+        }
 
     @extend_schema_field(serializers.DictField())
     def get_user(self, obj):
@@ -284,7 +299,10 @@ class ReviewSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.DictField())
     def get_product(self, obj):
-        return {'id': obj.product_id, 'slug': obj.product.slug, 'name': obj.product.name}
+        return {
+            'id': obj.product_id, 'slug': obj.product.slug,
+            'name_ru': obj.product.name_ru, 'name_kz': obj.product.name_kz, 'name_en': obj.product.name_en,
+        }
 
     @extend_schema_field(serializers.DictField())
     def get_order(self, obj):
@@ -387,8 +405,8 @@ class ProductListSerializer(serializers.ModelSerializer):
     main_image = serializers.SerializerMethodField()
     category = serializers.SerializerMethodField()
     brand = serializers.SerializerMethodField()
-    brand_name = serializers.CharField(source='brand.name', read_only=True)
-    category_name = serializers.CharField(source='category.name', read_only=True)
+    brand_name = serializers.CharField(source='brand.name_ru', read_only=True)
+    category_name = serializers.CharField(source='category.name_ru', read_only=True)
     discount_percent = serializers.ReadOnlyField()
     discount = serializers.ReadOnlyField()
     is_sale = serializers.ReadOnlyField()
@@ -402,7 +420,7 @@ class ProductListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = (
-            'id', 'name', 'slug', 'sku', 'category', 'brand',
+            'id', 'name_ru', 'name_kz', 'name_en', 'slug', 'sku', 'category', 'brand',
             'brand_name', 'category_name',
             'price', 'old_price', 'discount', 'discount_percent',
             'is_new', 'is_sale', 'is_active',
@@ -426,13 +444,19 @@ class ProductListSerializer(serializers.ModelSerializer):
     def get_category(self, obj):
         if not obj.category:
             return None
-        return {'id': obj.category.id, 'name': obj.category.name, 'slug': obj.category.slug}
+        return {
+            'id': obj.category.id, 'slug': obj.category.slug,
+            'name_ru': obj.category.name_ru, 'name_kz': obj.category.name_kz, 'name_en': obj.category.name_en,
+        }
 
     @extend_schema_field(serializers.DictField())
     def get_brand(self, obj):
         if not obj.brand:
             return None
-        return {'id': obj.brand.id, 'name': obj.brand.name, 'slug': obj.brand.slug}
+        return {
+            'id': obj.brand.id, 'slug': obj.brand.slug,
+            'name_ru': obj.brand.name_ru, 'name_kz': obj.brand.name_kz, 'name_en': obj.brand.name_en,
+        }
 
     @extend_schema_field(OpenApiTypes.DECIMAL)
     def get_min_price(self, obj):
@@ -506,9 +530,11 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = (
-            'id', 'name', 'slug', 'sku',
+            'id', 'name_ru', 'name_kz', 'name_en', 'slug', 'sku',
             'category', 'brand',
-            'description', 'composition', 'material', 'season',
+            'description_ru', 'description_kz', 'description_en',
+            'composition_ru', 'composition_kz', 'composition_en',
+            'material_ru', 'material_kz', 'material_en', 'season',
             'price', 'old_price', 'discount', 'discount_percent', 'is_sale',
             'images', 'media', 'videos', 'variants',
             'available_sizes', 'available_colors',
@@ -588,7 +614,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
         for variant in obj.variants.all():
             if variant.is_active and variant.color:
                 colors[variant.color.id] = variant.color
-        ordered_colors = sorted(colors.values(), key=lambda color: color.name)
+        ordered_colors = sorted(colors.values(), key=lambda color: color.name_ru)
         return ColorSerializer(ordered_colors, many=True).data
 
 
@@ -596,7 +622,9 @@ class BannerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Banner
         fields = (
-            'id', 'title', 'subtitle', 'button_text',
+            'id', 'title_ru', 'title_kz', 'title_en',
+            'subtitle_ru', 'subtitle_kz', 'subtitle_en',
+            'button_text_ru', 'button_text_kz', 'button_text_en',
             'image', 'image_mobile', 'link', 'position', 'sort_order',
         )
 

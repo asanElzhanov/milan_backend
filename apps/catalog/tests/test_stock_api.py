@@ -22,17 +22,17 @@ class StockApiTests(APITestCase):
             email='customer-stock@example.com',
             password='secret123',
         )
-        self.category = Category.objects.create(name='Shoes', slug='shoes')
-        self.other_category = Category.objects.create(name='Bags', slug='bags')
-        self.brand = Brand.objects.create(name='Nike', slug='nike')
-        self.other_brand = Brand.objects.create(name='Adidas', slug='adidas')
-        self.black = Color.objects.create(name='Black', slug='black', hex_code='#000000')
-        self.white = Color.objects.create(name='White', slug='white', hex_code='#FFFFFF')
+        self.category = Category.objects.create(name_ru='Shoes', slug='shoes')
+        self.other_category = Category.objects.create(name_ru='Bags', slug='bags')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='nike')
+        self.other_brand = Brand.objects.create(name_ru='Adidas', slug='adidas')
+        self.black = Color.objects.create(name_ru='Black', slug='black', hex_code='#000000')
+        self.white = Color.objects.create(name_ru='White', slug='white', hex_code='#FFFFFF')
         self.size_41 = Size.objects.create(value='41', size_type=Size.SizeType.SHOES, sort_order=1)
         self.size_42 = Size.objects.create(value='42', size_type=Size.SizeType.SHOES, sort_order=2)
         self.product = Product.objects.create(
             sku='SKU-STOCK-API',
-            name='Stock API Product',
+            name_ru='Stock API Product',
             slug='stock-api-product',
             category=self.category,
             brand=self.brand,
@@ -40,7 +40,7 @@ class StockApiTests(APITestCase):
         )
         self.other_product = Product.objects.create(
             sku='SKU-STOCK-API-OTHER',
-            name='Other Stock API Product',
+            name_ru='Other Stock API Product',
             slug='other-stock-api-product',
             category=self.other_category,
             brand=self.other_brand,

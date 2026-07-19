@@ -20,8 +20,8 @@ DEFAULT_USER = object()
 
 class ProductReviewServiceTests(TestCase):
     def setUp(self):
-        self.category = Category.objects.create(name='Shoes', slug='review-shoes')
-        self.brand = Brand.objects.create(name='Nike', slug='review-nike')
+        self.category = Category.objects.create(name_ru='Shoes', slug='review-shoes')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='review-nike')
         self.user = User.objects.create_user(email='review@example.com')
         self.other_user = User.objects.create_user(email='other-review@example.com')
         self.manager = User.objects.create_user(
@@ -52,7 +52,7 @@ class ProductReviewServiceTests(TestCase):
     def create_product(self, sku, name, slug):
         return Product.objects.create(
             sku=sku,
-            name=name,
+            name_ru=name,
             slug=slug,
             category=self.category,
             brand=self.brand,
@@ -79,7 +79,7 @@ class ProductReviewServiceTests(TestCase):
         return OrderItem.objects.create(
             order=order,
             variant=variant,
-            product_name=variant.product.name,
+            product_name=variant.product.name_ru,
             product_slug=variant.product.slug,
             sku=variant.sku,
             unit_price=Decimal('100.00'),

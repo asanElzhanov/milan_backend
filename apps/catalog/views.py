@@ -177,7 +177,7 @@ class BrandListView(ActiveFilterMixin, generics.ListAPIView):
 
     def get_queryset(self):
         queryset = self.filter_by_active(Brand.objects.all())
-        return queryset.order_by('name')
+        return queryset.order_by('name_ru')
 
     @extend_schema(
         tags=['Catalog / Brands'],
@@ -212,7 +212,7 @@ class ColorListView(ActiveFilterMixin, generics.ListAPIView):
 
     def get_queryset(self):
         queryset = self.filter_by_active(Color.objects.all())
-        return queryset.order_by('name')
+        return queryset.order_by('name_ru')
 
     @extend_schema(
         tags=['Catalog / Colors'],
@@ -262,8 +262,11 @@ class ProductListView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, ProductOrderingFilter]
     filterset_class = ProductFilter
-    search_fields = ['name', 'brand__name', 'variants__sku']
-    ordering_fields = ['price', 'created_at', 'name']
+    search_fields = [
+        'name_ru', 'name_kz', 'name_en',
+        'brand__name_ru', 'brand__name_kz', 'brand__name_en', 'variants__sku',
+    ]
+    ordering_fields = ['price', 'created_at', 'name_ru']
     ordering = ['-created_at']
 
     def get_queryset(self):
@@ -363,9 +366,11 @@ class StockVariantListView(generics.ListAPIView):
     permission_classes = [IsManagerOrAdmin]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = StockVariantFilter
-    search_fields = ['sku', 'product__name', 'product__slug']
-    ordering_fields = ['stock_quantity', 'sku', 'product__name']
-    ordering = ['product__name', 'sku']
+    search_fields = [
+        'sku', 'product__name_ru', 'product__name_kz', 'product__name_en', 'product__slug',
+    ]
+    ordering_fields = ['stock_quantity', 'sku', 'product__name_ru']
+    ordering = ['product__name_ru', 'sku']
 
     def get_queryset(self):
         return ProductVariant.objects.select_related(
@@ -400,7 +405,11 @@ class StockMovementListView(generics.ListAPIView):
     permission_classes = [IsManagerOrAdmin]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = StockMovementFilter
-    search_fields = ['variant__sku', 'variant__product__name', 'variant__product__slug', 'comment']
+    search_fields = [
+        'variant__sku',
+        'variant__product__name_ru', 'variant__product__name_kz', 'variant__product__name_en',
+        'variant__product__slug', 'comment',
+    ]
     ordering_fields = ['created_at', 'operation_type', 'quantity']
     ordering = ['-created_at']
 

@@ -20,10 +20,10 @@ class BannerAdminTests(TestCase):
         )
         self.client.force_login(self.admin_user)
         self.banner = Banner.objects.create(
-            title='Admin banner',
-            subtitle='Season collection',
+            title_ru='Admin banner',
+            subtitle_ru='Season collection',
             image=self.make_image_file(),
-            button_text='Shop',
+            button_text_ru='Shop',
             link='/catalog/',
         )
 

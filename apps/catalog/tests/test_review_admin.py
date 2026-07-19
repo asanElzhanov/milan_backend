@@ -26,11 +26,11 @@ class ReviewAdminTests(TestCase):
             role=User.Role.MANAGER,
             is_staff=True,
         )
-        self.category = Category.objects.create(name='Shoes', slug='review-admin-shoes')
-        self.brand = Brand.objects.create(name='Nike', slug='review-admin-nike')
+        self.category = Category.objects.create(name_ru='Shoes', slug='review-admin-shoes')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='review-admin-nike')
         self.product = Product.objects.create(
             sku='SKU-REVIEW-ADMIN',
-            name='Review Admin Product',
+            name_ru='Review Admin Product',
             slug='review-admin-product',
             category=self.category,
             brand=self.brand,
@@ -56,7 +56,7 @@ class ReviewAdminTests(TestCase):
         OrderItem.objects.create(
             order=self.order,
             variant=self.variant,
-            product_name=self.product.name,
+            product_name=self.product.name_ru,
             product_slug=self.product.slug,
             sku=self.variant.sku,
             unit_price=Decimal('100.00'),

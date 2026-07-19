@@ -93,7 +93,7 @@ class ProductImageInline(admin.TabularInline):
 
 class ProductMediaInline(admin.TabularInline):
     model = ProductMedia
-    fields = ('media_type', 'file', 'url', 'title', 'alt_text', 'sort_order', 'is_active', 'created_at', 'updated_at')
+    fields = ('media_type', 'file', 'url', 'title_ru', 'title_kz', 'title_en', 'alt_text', 'sort_order', 'is_active', 'created_at', 'updated_at')
     readonly_fields = ('created_at', 'updated_at')
     extra = 0
 
@@ -101,27 +101,29 @@ class ProductMediaInline(admin.TabularInline):
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display = (
-        'name', 'slug', 'category', 'brand',
+        'name_ru', 'name_kz', 'name_en', 'slug', 'category', 'brand',
         'price', 'old_price', 'discount_display',
         'is_new', 'is_sale_display', 'is_active', 'in_stock_display',
         'created_at', 'updated_at',
     )
     list_filter = ('category', 'brand', 'is_active', 'is_new', ProductSaleFilter, ProductStockFilter)
-    search_fields = ('name', 'slug', 'sku', 'variants__sku')
-    prepopulated_fields = {'slug': ('name',)}
+    search_fields = ('name_ru', 'name_kz', 'name_en', 'slug', 'sku', 'variants__sku')
+    prepopulated_fields = {'slug': ('name_ru',)}
     list_editable = ('price', 'is_active', 'is_new')
     readonly_fields = (
         'created_at', 'updated_at',
         'views_count', 'orders_count', 'rating', 'reviews_count',
         'discount_display', 'is_sale_display', 'in_stock_display',
     )
-    ordering = ('name',)
+    ordering = ('name_ru',)
     inlines = (ProductVariantInline, ProductImageInline, ProductMediaInline)
     fieldsets = (
         ('Основная информация', {
             'fields': (
-                'sku', 'name', 'slug', 'category', 'brand',
-                'description', 'composition', 'material', 'season',
+                'sku', 'name_ru', 'name_kz', 'name_en', 'slug', 'category', 'brand',
+                'description_ru', 'description_kz', 'description_en',
+                'composition_ru', 'composition_kz', 'composition_en',
+                'material_ru', 'material_kz', 'material_en', 'season',
             ),
         }),
         ('Цены и скидки', {
@@ -169,9 +171,9 @@ class ProductAdmin(admin.ModelAdmin):
 class ProductVariantAdmin(admin.ModelAdmin):
     list_display = ('product', 'sku', 'size', 'color', 'stock_quantity', 'variant_price', 'is_active', 'in_stock')
     list_filter = ('product__category', 'product__brand', 'size', 'color', 'is_active', ProductStockFilter)
-    search_fields = ('sku', 'product__name', 'product__slug')
+    search_fields = ('sku', 'product__name_ru', 'product__name_kz', 'product__name_en', 'product__slug')
     autocomplete_fields = ('product', 'size', 'color')
-    ordering = ('product__name', 'sku')
+    ordering = ('product__name_ru', 'sku')
     readonly_fields = ('stock_quantity', 'in_stock', 'created_at', 'updated_at')
     fieldsets = (
         ('Вариант', {
@@ -201,9 +203,9 @@ class ProductVariantAdmin(admin.ModelAdmin):
 class ProductImageAdmin(admin.ModelAdmin):
     list_display = ('product', 'image', 'is_main', 'sort_order', 'alt_text', 'created_at')
     list_filter = ('is_main',)
-    search_fields = ('product__name', 'product__slug', 'alt_text')
+    search_fields = ('product__name_ru', 'product__name_kz', 'product__name_en', 'product__slug', 'alt_text')
     autocomplete_fields = ('product',)
-    ordering = ('product__name', 'sort_order', 'id')
+    ordering = ('product__name_ru', 'sort_order', 'id')
     readonly_fields = ('created_at', 'updated_at')
 
 
@@ -211,7 +213,7 @@ class ProductImageAdmin(admin.ModelAdmin):
 class StockMovementAdmin(admin.ModelAdmin):
     list_display = ('variant', 'sku', 'product', 'quantity', 'operation_type', 'user', 'comment', 'created_at')
     list_filter = ('operation_type', 'created_at', 'user')
-    search_fields = ('variant__sku', 'variant__product__name', 'comment')
+    search_fields = ('variant__sku', 'variant__product__name_ru', 'variant__product__name_kz', 'variant__product__name_en', 'comment')
     readonly_fields = ('variant', 'quantity', 'operation_type', 'user', 'comment', 'created_at')
     ordering = ('-created_at',)
     date_hierarchy = 'created_at'
@@ -308,9 +310,12 @@ class ImportJobErrorAdmin(admin.ModelAdmin):
 
 @admin.register(ProductMedia)
 class ProductMediaAdmin(admin.ModelAdmin):
-    list_display = ('product', 'media_type', 'title', 'is_active', 'sort_order')
+    list_display = ('product', 'media_type', 'title_ru', 'title_kz', 'title_en', 'is_active', 'sort_order')
     list_filter = ('media_type', 'is_active')
-    search_fields = ('product__name', 'title', 'url', 'alt_text')
+    search_fields = (
+        'product__name_ru', 'product__name_kz', 'product__name_en',
+        'title_ru', 'title_kz', 'title_en', 'url', 'alt_text',
+    )
     autocomplete_fields = ('product',)
     readonly_fields = ('created_at', 'updated_at')
 
@@ -326,7 +331,7 @@ class ReviewAdmin(admin.ModelAdmin):
         'status', 'rating', 'created_at', 'moderated_at',
     )
     search_fields = (
-        'product__name', 'product__slug',
+        'product__name_ru', 'product__name_kz', 'product__name_en', 'product__slug',
         'user__email', 'user__first_name', 'user__last_name',
         'order__order_number', 'text',
     )
@@ -399,7 +404,7 @@ class ReviewAdmin(admin.ModelAdmin):
             return text
         return f'{text[:100]}...'
 
-    @admin.display(description='товар', ordering='product__name')
+    @admin.display(description='товар', ordering='product__name_ru')
     def product_link(self, obj):
         url = reverse('admin:catalog_product_change', args=[obj.product_id])
         return format_html('<a href="{}">{}</a>', url, obj.product)
@@ -453,30 +458,30 @@ class ReviewAdmin(admin.ModelAdmin):
 
 @admin.register(Category)
 class CategoryAdmin(MPTTModelAdmin):
-    list_display = ('name', 'slug', 'parent', 'is_active', 'sort_order')
+    list_display = ('name_ru', 'name_kz', 'name_en', 'slug', 'parent', 'is_active', 'sort_order')
     list_editable = ('is_active', 'sort_order')
     list_filter = ('is_active',)
-    search_fields = ('name', 'slug')
+    search_fields = ('name_ru', 'name_kz', 'name_en', 'slug')
     ordering = ('tree_id', 'lft')
-    prepopulated_fields = {'slug': ('name',)}
+    prepopulated_fields = {'slug': ('name_ru',)}
     readonly_fields = ('created_at', 'updated_at')
 
 @admin.register(Brand)
 class BrandAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'is_active', 'logo')
+    list_display = ('name_ru', 'name_kz', 'name_en', 'slug', 'is_active', 'logo')
     list_filter = ('is_active',)
-    search_fields = ('name', 'slug')
-    ordering = ('name',)
-    prepopulated_fields = {'slug': ('name',)}
+    search_fields = ('name_ru', 'name_kz', 'name_en', 'slug')
+    ordering = ('name_ru',)
+    prepopulated_fields = {'slug': ('name_ru',)}
     readonly_fields = ('created_at', 'updated_at')
 
 @admin.register(Color)
 class ColorAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'hex_code', 'is_active')
+    list_display = ('name_ru', 'name_kz', 'name_en', 'slug', 'hex_code', 'is_active')
     list_filter = ('is_active',)
-    search_fields = ('name', 'slug', 'hex_code')
-    ordering = ('name',)
-    prepopulated_fields = {'slug': ('name',)}
+    search_fields = ('name_ru', 'name_kz', 'name_en', 'slug', 'hex_code')
+    ordering = ('name_ru',)
+    prepopulated_fields = {'slug': ('name_ru',)}
     readonly_fields = ('created_at', 'updated_at')
 
 
@@ -493,17 +498,24 @@ class SizeAdmin(admin.ModelAdmin):
 @admin.register(Banner)
 class BannerAdmin(admin.ModelAdmin):
     list_display = (
-        'title', 'subtitle', 'link', 'sort_order',
+        'title_ru', 'title_kz', 'title_en', 'subtitle_ru', 'link', 'sort_order',
         'is_active', 'created_at', 'updated_at',
     )
     list_filter = ('is_active', 'created_at')
-    search_fields = ('title', 'subtitle', 'link')
+    search_fields = (
+        'title_ru', 'title_kz', 'title_en',
+        'subtitle_ru', 'subtitle_kz', 'subtitle_en', 'link',
+    )
     ordering = ('sort_order', 'id')
     list_editable = ('is_active', 'sort_order')
     readonly_fields = ('created_at', 'updated_at')
     fieldsets = (
         ('Контент', {
-            'fields': ('title', 'subtitle', 'button_text', 'link'),
+            'fields': (
+                'title_ru', 'title_kz', 'title_en',
+                'subtitle_ru', 'subtitle_kz', 'subtitle_en',
+                'button_text_ru', 'button_text_kz', 'button_text_en', 'link',
+            ),
         }),
         ('Изображения', {
             'fields': ('image', 'image_mobile'),

@@ -9,11 +9,11 @@ from apps.catalog.models import Brand, Category, Product, ProductVariant, StockM
 
 class StockMovementModelTests(TestCase):
     def setUp(self):
-        category = Category.objects.create(name='Shoes', slug='shoes')
-        brand = Brand.objects.create(name='Nike', slug='nike')
+        category = Category.objects.create(name_ru='Shoes', slug='shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='nike')
         product = Product.objects.create(
             sku='SKU-STOCK',
-            name='Stock Product',
+            name_ru='Stock Product',
             slug='stock-product',
             category=category,
             brand=brand,

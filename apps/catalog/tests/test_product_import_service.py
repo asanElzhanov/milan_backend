@@ -27,9 +27,9 @@ class ProductImportServiceTests(TestCase):
             email='import-manager@example.com',
             role=User.Role.MANAGER,
         )
-        self.category = Category.objects.create(name='Shoes', slug='shoes')
-        self.brand = Brand.objects.create(name='Nike', slug='nike')
-        self.color = Color.objects.create(name='Black', slug='black', hex_code='#000000')
+        self.category = Category.objects.create(name_ru='Shoes', slug='shoes')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='nike')
+        self.color = Color.objects.create(name_ru='Black', slug='black', hex_code='#000000')
         self.size = Size.objects.create(value='42', size_type=Size.SizeType.SHOES)
 
     def make_job(self, content=''):
@@ -70,7 +70,7 @@ class ProductImportServiceTests(TestCase):
 
         self.assertTrue(result.success)
         product = Product.objects.get(slug='air-max')
-        self.assertEqual(product.name, 'Air Max')
+        self.assertEqual(product.name_ru, 'Air Max')
         self.assertEqual(product.category, self.category)
         self.assertEqual(product.brand, self.brand)
         self.assertEqual(product.price, Decimal('100.00'))
@@ -120,7 +120,7 @@ class ProductImportServiceTests(TestCase):
     def test_existing_sku_updates_variant(self):
         product = Product.objects.create(
             sku='PRODUCT-OLD',
-            name='Old Name',
+            name_ru='Old Name',
             slug='old-product',
             category=self.category,
             brand=self.brand,
@@ -151,7 +151,7 @@ class ProductImportServiceTests(TestCase):
         self.assertTrue(result.success)
         product.refresh_from_db()
         variant.refresh_from_db()
-        self.assertEqual(product.name, 'Updated Name')
+        self.assertEqual(product.name_ru, 'Updated Name')
         self.assertEqual(variant.stock_quantity, 8)
         self.assertEqual(variant.variant_price, Decimal('105.00'))
         movement = StockMovement.objects.get(variant=variant)

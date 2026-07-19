@@ -17,13 +17,13 @@ class ProductAdminTests(TestCase):
             password='secret123',
         )
         self.client.force_login(self.admin_user)
-        self.category = Category.objects.create(name='Shoes', slug='shoes')
-        self.brand = Brand.objects.create(name='Nike', slug='nike')
-        self.color = Color.objects.create(name='Black', slug='black', hex_code='#000000')
+        self.category = Category.objects.create(name_ru='Shoes', slug='shoes')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='nike')
+        self.color = Color.objects.create(name_ru='Black', slug='black', hex_code='#000000')
         self.size = Size.objects.create(value='42', size_type=Size.SizeType.SHOES)
         self.product = Product.objects.create(
             sku='SKU-ADMIN',
-            name='Admin Product',
+            name_ru='Admin Product',
             slug='admin-product',
             category=self.category,
             brand=self.brand,
@@ -149,8 +149,8 @@ class ProductAdminTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Статус')
         self.assertContains(response, 'completed')
-        self.assertNotContains(response, 'name="status"')
-        self.assertNotContains(response, 'name="total_count"')
+        self.assertNotContains(response, 'name_ru="status"')
+        self.assertNotContains(response, 'name_ru="total_count"')
 
     def test_import_job_error_admin_opens_and_is_read_only(self):
         import_job = ImportJob.objects.create(
@@ -184,7 +184,7 @@ class ProductAdminTests(TestCase):
         self.assertContains(changelist_response, 'Invalid price')
         self.assertEqual(change_response.status_code, 200)
         self.assertContains(change_response, 'BAD-SKU')
-        self.assertNotContains(change_response, 'name="row_number"')
+        self.assertNotContains(change_response, 'name_ru="row_number"')
         self.assertEqual(post_response.status_code, 403)
         error.refresh_from_db()
         self.assertEqual(error.row_number, 2)

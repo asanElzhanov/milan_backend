@@ -57,7 +57,7 @@ class ProductFilter(django_filters.FilterSet):
     subcategory_slug = django_filters.CharFilter(method='filter_category')
     color = django_filters.CharFilter(method='filter_color')
     size = django_filters.CharFilter(method='filter_size')
-    material = django_filters.CharFilter(field_name='material', lookup_expr='icontains')
+    material = django_filters.CharFilter(field_name='material_ru', lookup_expr='icontains')
     season = django_filters.CharFilter(field_name='season')
     in_stock = django_filters.BooleanFilter(method='filter_in_stock')
     is_sale = django_filters.BooleanFilter(method='filter_is_sale')

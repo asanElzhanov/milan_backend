@@ -35,7 +35,7 @@ class BannerAPITests(APITestCase):
             'image': self.make_image_file(f'{title}.jpg'),
         }
         defaults.update(kwargs)
-        return Banner.objects.create(title=title, **defaults)
+        return Banner.objects.create(title_ru=title, **defaults)
 
     def response_items(self, response):
         return response.data['results'] if isinstance(response.data, dict) else response.data
@@ -43,7 +43,7 @@ class BannerAPITests(APITestCase):
     def test_banner_list_returns_only_active_visible_banners_ordered(self):
         now = timezone.now()
         second = self.make_banner('Second', sort_order=2)
-        first = self.make_banner('First', sort_order=1, button_text='Open', link='/catalog/')
+        first = self.make_banner('First', sort_order=1, button_text_ru='Open', link='/catalog/')
         self.make_banner('Inactive', is_active=False, sort_order=0)
         self.make_banner('Future', starts_at=now + timedelta(days=1), sort_order=0)
         self.make_banner('Expired', ends_at=now - timedelta(days=1), sort_order=0)
@@ -53,13 +53,16 @@ class BannerAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         items = self.response_items(response)
         self.assertEqual([item['id'] for item in items], [first.id, second.id])
-        self.assertEqual(items[0]['button_text'], 'Open')
+        self.assertEqual(items[0]['button_text_ru'], 'Open')
         self.assertEqual(items[0]['link'], '/catalog/')
         self.assertIn('sort_order', items[0])
         self.assertEqual(
             set(items[0].keys()),
             {
-                'id', 'title', 'subtitle', 'button_text',
+                'id',
+                'title_ru', 'title_kz', 'title_en',
+                'subtitle_ru', 'subtitle_kz', 'subtitle_en',
+                'button_text_ru', 'button_text_kz', 'button_text_en',
                 'image', 'image_mobile', 'link', 'position', 'sort_order',
             },
         )

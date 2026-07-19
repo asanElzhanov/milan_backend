@@ -124,7 +124,7 @@ class Command(BaseCommand):
         StockMovement.objects.filter(variant__in=demo_variants).delete()
         Product.objects.filter(sku__in=self.PRODUCT_SKUS).delete()
 
-        Banner.objects.filter(title__in=self.BANNER_TITLES).delete()
+        Banner.objects.filter(title_ru__in=self.BANNER_TITLES).delete()
         StaticPage.objects.filter(slug__in=self.PAGE_SLUGS).delete()
         User.objects.filter(email__in=self.demo_emails()).delete()
         self.counts['reset'] += 1
@@ -208,7 +208,8 @@ class Command(BaseCommand):
             category, created = Category.objects.update_or_create(
                 slug=slug,
                 defaults={
-                    'name': name,
+                    'name_ru': name,
+                    'name_en': name,
                     'parent': parent,
                     'is_active': True,
                     'sort_order': sort_order,
@@ -228,7 +229,7 @@ class Command(BaseCommand):
         ):
             brand, created = Brand.objects.update_or_create(
                 slug=slug,
-                defaults={'name': name, 'is_active': True},
+                defaults={'name_ru': name, 'name_en': name, 'is_active': True},
             )
             self.brands[slug] = brand
             self.bump('brands', created)
@@ -242,7 +243,7 @@ class Command(BaseCommand):
         ):
             color, created = Color.objects.update_or_create(
                 slug=slug,
-                defaults={'name': name, 'hex_code': hex_code, 'is_active': True},
+                defaults={'name_ru': name, 'name_en': name, 'hex_code': hex_code, 'is_active': True},
             )
             self.colors[slug] = color
             self.bump('colors', created)
@@ -273,13 +274,15 @@ class Command(BaseCommand):
             product, created = Product.objects.update_or_create(
                 sku=spec['sku'],
                 defaults={
-                    'name': spec['name'],
+                    'name_ru': spec['name'],
+                    'name_en': spec['name'],
                     'slug': spec['slug'],
                     'category': self.categories[spec['category']],
                     'brand': self.brands[spec['brand']],
-                    'description': spec['description'],
-                    'composition': spec.get('composition', ''),
-                    'material': spec.get('material', ''),
+                    'description_ru': spec['description'],
+                    'description_en': spec['description'],
+                    'composition_ru': spec.get('composition', ''),
+                    'material_ru': spec.get('material', ''),
                     'season': spec.get('season', Product.Season.ALL_SEASON),
                     'price': spec['price'],
                     'old_price': spec.get('old_price'),
@@ -314,7 +317,8 @@ class Command(BaseCommand):
         specs = [
             {
                 'code': 'courier',
-                'name': 'Courier delivery',
+                'name_ru': 'Courier delivery',
+                'name_en': 'Courier delivery',
                 'delivery_type': DeliveryMethod.DeliveryType.COURIER,
                 'price_type': DeliveryMethod.PriceType.FIXED,
                 'base_price': Decimal('1500.00'),
@@ -323,7 +327,8 @@ class Command(BaseCommand):
             },
             {
                 'code': 'pickup',
-                'name': 'Pickup',
+                'name_ru': 'Pickup',
+                'name_en': 'Pickup',
                 'delivery_type': DeliveryMethod.DeliveryType.PICKUP,
                 'price_type': DeliveryMethod.PriceType.FREE,
                 'base_price': Decimal('0.00'),
@@ -332,7 +337,8 @@ class Command(BaseCommand):
             },
             {
                 'code': 'kazakhstan_delivery',
-                'name': 'Kazakhstan delivery',
+                'name_ru': 'Kazakhstan delivery',
+                'name_en': 'Kazakhstan delivery',
                 'delivery_type': DeliveryMethod.DeliveryType.KAZAKHSTAN_DELIVERY,
                 'price_type': DeliveryMethod.PriceType.MANAGER_CALCULATION,
                 'base_price': Decimal('0.00'),
@@ -346,7 +352,7 @@ class Command(BaseCommand):
                 defaults={
                     **spec,
                     'slug': spec['code'],
-                    'description': f'Demo {spec["name"].lower()} method.',
+                    'description_ru': f'Demo {spec["name_ru"].lower()} method.',
                     'is_active': True,
                 },
             )
@@ -428,8 +434,10 @@ class Command(BaseCommand):
             obj, created = StaticPage.objects.update_or_create(
                 slug=page[0],
                 defaults={
-                    'title': page[1],
-                    'content': page[2],
+                    'title_ru': page[1],
+                    'title_en': page[1],
+                    'content_ru': page[2],
+                    'content_en': page[2],
                     'seo_title': f'{page[1]} | Demo shop',
                     'seo_description': page[2],
                     'is_active': True,
@@ -442,10 +450,13 @@ class Command(BaseCommand):
             ('Seed Mid Season Promo', Banner.Position.PROMO, 20),
         ):
             banner, created = Banner.objects.update_or_create(
-                title=title,
+                title_ru=title,
                 defaults={
-                    'subtitle': 'Demo banner created by seed_data.',
-                    'button_text': 'Shop now',
+                    'title_en': title,
+                    'subtitle_ru': 'Demo banner created by seed_data.',
+                    'subtitle_en': 'Demo banner created by seed_data.',
+                    'button_text_ru': 'Shop now',
+                    'button_text_en': 'Shop now',
                     'image': f'seed/banners/{title.lower().replace(" ", "-")}.png',
                     'link': '/catalog/products/',
                     'position': position,

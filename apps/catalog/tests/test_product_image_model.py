@@ -14,11 +14,11 @@ class ProductImageModelTests(TestCase):
         self.override = override_settings(MEDIA_ROOT=self.media_root)
         self.override.enable()
 
-        self.category = Category.objects.create(name='Shoes', slug='shoes')
-        self.brand = Brand.objects.create(name='Nike', slug='nike')
+        self.category = Category.objects.create(name_ru='Shoes', slug='shoes')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='nike')
         self.product = Product.objects.create(
             sku='SKU-IMAGE',
-            name='Air Max',
+            name_ru='Air Max',
             category=self.category,
             brand=self.brand,
             price=Decimal('100.00'),

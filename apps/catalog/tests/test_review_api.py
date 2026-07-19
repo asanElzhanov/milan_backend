@@ -12,8 +12,8 @@ from apps.orders.models import Order, OrderItem
 
 class ReviewApiTests(APITestCase):
     def setUp(self):
-        self.category = Category.objects.create(name='Shoes', slug='api-review-shoes')
-        self.brand = Brand.objects.create(name='Nike', slug='api-review-nike')
+        self.category = Category.objects.create(name_ru='Shoes', slug='api-review-shoes')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='api-review-nike')
         self.user = User.objects.create_user(
             email='api-review@example.com',
             first_name='Aida',
@@ -25,7 +25,7 @@ class ReviewApiTests(APITestCase):
         )
         self.product = Product.objects.create(
             sku='SKU-API-REVIEW',
-            name='API Review Product',
+            name_ru='API Review Product',
             slug='api-review-product',
             category=self.category,
             brand=self.brand,
@@ -33,7 +33,7 @@ class ReviewApiTests(APITestCase):
         )
         self.other_product = Product.objects.create(
             sku='SKU-API-OTHER-REVIEW',
-            name='API Other Review Product',
+            name_ru='API Other Review Product',
             slug='api-other-review-product',
             category=self.category,
             brand=self.brand,
@@ -70,7 +70,7 @@ class ReviewApiTests(APITestCase):
         return OrderItem.objects.create(
             order=order,
             variant=variant,
-            product_name=variant.product.name,
+            product_name=variant.product.name_ru,
             product_slug=variant.product.slug,
             sku=variant.sku,
             unit_price=Decimal('100.00'),
