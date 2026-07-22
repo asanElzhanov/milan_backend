@@ -60,8 +60,16 @@ def build_signed_params(script_name: str, params: dict[str, Any]) -> dict[str, A
 
 
 def parse_xml_to_dict(xml_text: str) -> dict[str, str]:
-    """Разбирает плоский XML-ответ FreedomPay в dict."""
-    root = ET.fromstring(xml_text)
+    """Разбирает плоский XML-ответ FreedomPay в dict.
+
+    Если FreedomPay вернул не XML (HTML-ошибку, пустоту, JSON), бросаем ValueError
+    с фрагментом тела — чтобы вызывающий код показал внятную причину, а не 500.
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        snippet = (xml_text or '').strip()[:300]
+        raise ValueError(f'FreedomPay вернул не-XML ответ: {snippet!r} ({exc})') from exc
     return {child.tag: (child.text or '') for child in root}
 
 

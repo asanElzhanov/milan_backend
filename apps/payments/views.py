@@ -1,3 +1,5 @@
+import logging
+
 import requests
 from django.conf import settings
 from django.db import transaction
@@ -14,6 +16,8 @@ from apps.orders.services import OrderStatusService
 
 from . import freedompay
 from .models import Payment
+
+logger = logging.getLogger(__name__)
 
 
 PaymentOrderRequestSerializer = inline_serializer(
@@ -124,11 +128,20 @@ class FreedomCreatePaymentView(APIView):
                 locale=locale,
             )
         except (requests.RequestException, ValueError) as exc:
+            logger.warning(
+                'FreedomPay init_payment failed for order %s: %r', order.order_number, exc
+            )
             return Response(
                 {'detail': f'Не удалось инициировать оплату: {exc}'}, status=400
             )
 
         if pg_status != 'ok' or not redirect_url:
+            logger.warning(
+                'FreedomPay rejected init_payment for order %s: status=%s response=%s',
+                order.order_number,
+                pg_status,
+                raw,
+            )
             return Response(
                 {
                     'detail': raw.get('pg_error_description')
