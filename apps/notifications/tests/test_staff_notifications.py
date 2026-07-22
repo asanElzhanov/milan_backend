@@ -13,8 +13,8 @@ from apps.catalog.tasks import process_product_import
 from apps.notifications.models import Notification
 from apps.orders.models import Cart, CartItem, Order, OrderItem
 from apps.orders.services import CheckoutService, OrderStatusService
+from apps.payments import freedompay
 from apps.payments.models import Payment
-from apps.payments.views import StripeWebhookView
 
 
 @override_settings(LOW_STOCK_THRESHOLD=3)
@@ -115,21 +115,33 @@ class StaffNotificationFlowTests(TestCase):
         notifications = self.assert_staff_notified(Notification.EventType.PAYMENT_SUCCESS)
         self.assertTrue(notifications.filter(message__contains=order.order_number).exists())
 
+    @override_settings(FREEDOMPAY_SECRET_KEY='staff_secret')
     def test_payment_error_creates_notification(self):
         order = self.create_order()
-        payment = Payment.objects.create(
+        Payment.objects.create(
             order=order,
-            provider=Payment.Provider.STRIPE,
+            provider=Payment.Provider.FREEDOM,
             status=Payment.Status.PENDING,
             amount=order.total_amount,
-            provider_payment_id='pi_staff_failed',
+            provider_payment_id='pay_staff_failed',
+        )
+
+        params = {
+            'pg_order_id': order.order_number,
+            'pg_payment_id': 'pay_staff_failed',
+            'pg_result': '0',
+            'pg_failure_description': 'FreedomPay payment failed.',
+            'pg_salt': 'salt',
+        }
+        params['pg_sig'] = freedompay.generate_signature(
+            freedompay.RESULT_SCRIPT, params, 'staff_secret'
         )
 
         with self.captureOnCommitCallbacks(execute=True):
-            StripeWebhookView()._handle_payment_failed(payment.provider_payment_id)
+            self.client.post('/api/v1/payments/freedom/result', params)
 
         notifications = self.assert_staff_notified(Notification.EventType.PAYMENT_ERROR)
-        self.assertTrue(notifications.filter(message__contains='Stripe payment failed').exists())
+        self.assertTrue(notifications.filter(message__contains='FreedomPay payment failed').exists())
 
     def test_new_pending_review_creates_notification(self):
         order = self.create_order(status=Order.Status.COMPLETED, payment_status=Order.PaymentStatus.PAID)

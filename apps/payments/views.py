@@ -1,21 +1,19 @@
-import stripe
-import hashlib
-import hmac
+import requests
 from django.conf import settings
 from django.db import transaction
-from django.views.decorators.csrf import csrf_exempt
+from django.http import HttpResponse
 from django.utils.decorators import method_decorator
-from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
-from rest_framework import status, permissions
+from django.views.decorators.csrf import csrf_exempt
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, inline_serializer
+from rest_framework import permissions, serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework import serializers
 
 from apps.orders.models import Order
 from apps.orders.services import OrderStatusService
-from .models import Payment
 
-stripe.api_key = settings.STRIPE_SECRET_KEY
+from . import freedompay
+from .models import Payment
 
 
 PaymentOrderRequestSerializer = inline_serializer(
@@ -23,31 +21,22 @@ PaymentOrderRequestSerializer = inline_serializer(
     fields={
         'order_number': serializers.CharField(),
         'email': serializers.EmailField(required=False),
+        'locale': serializers.CharField(required=False),
     },
 )
-StripeIntentResponseSerializer = inline_serializer(
-    name='StripeIntentResponse',
-    fields={'client_secret': serializers.CharField()},
-)
-KaspiCreateResponseSerializer = inline_serializer(
-    name='KaspiCreateResponse',
+FreedomCreateResponseSerializer = inline_serializer(
+    name='FreedomCreateResponse',
     fields={'redirect_url': serializers.URLField()},
 )
 PaymentStatusResponseSerializer = inline_serializer(
     name='PaymentStatusResponse',
-    fields={'status': serializers.CharField()},
-)
-StripeWebhookRequestSerializer = inline_serializer(
-    name='StripeWebhookRequest',
-    fields={'type': serializers.CharField(), 'data': serializers.JSONField()},
-)
-KaspiWebhookRequestSerializer = inline_serializer(
-    name='KaspiWebhookRequest',
     fields={
-        'OrderId': serializers.CharField(),
-        'Status': serializers.ChoiceField(choices=['success', 'failed']),
+        'status': serializers.CharField(),
+        'payment_status': serializers.CharField(),
     },
 )
+
+SUPPORTED_LOCALES = {'ru', 'kk', 'en'}
 
 
 def delivery_price_not_final_response(order):
@@ -59,6 +48,19 @@ def delivery_price_not_final_response(order):
     return None
 
 
+def _check_order_access(order, *, user, email):
+    """Общая проверка доступа к заказу (владелец или совпадение email для гостя)."""
+    if order.user_id:
+        if not user or not user.is_authenticated or order.user_id != user.id:
+            return Response({'detail': 'Нет доступа к заказу'}, status=403)
+        return None
+
+    email = str(email or '').strip().lower()
+    if not email or email != order.email.lower():
+        return Response({'detail': 'Нет доступа к заказу'}, status=403)
+    return None
+
+
 def get_order_for_payment(request):
     order_number = request.data.get('order_number')
     try:
@@ -66,32 +68,32 @@ def get_order_for_payment(request):
     except Order.DoesNotExist:
         return None, Response({'detail': 'Заказ не найден'}, status=404)
 
-    if order.user_id:
-        if not request.user.is_authenticated or order.user_id != request.user.id:
-            return None, Response({'detail': 'Нет доступа к заказу'}, status=403)
-        return order, None
-
-    email = str(request.data.get('email') or '').strip().lower()
-    if not email or email != order.email.lower():
-        return None, Response({'detail': 'Нет доступа к заказу'}, status=403)
+    error = _check_order_access(order, user=request.user, email=request.data.get('email'))
+    if error is not None:
+        return None, error
     return order, None
 
 
-class StripeCreateIntentView(APIView):
+def _normalize_locale(value):
+    locale = str(value or 'ru').strip().lower()
+    return locale if locale in SUPPORTED_LOCALES else 'ru'
+
+
+class FreedomCreatePaymentView(APIView):
     """
-    POST /payments/stripe/create-intent/
-    Body: { "order_number": "ORD-XXXXXXXX" }
-    Возвращает client_secret для Stripe Elements на фронте
+    POST /payments/freedom/create/
+    Body: { "order_number": "ORD-XXXX", "email"?: "...", "locale"?: "ru" }
+    Инициирует платёж в FreedomPay и возвращает ссылку для редиректа.
     """
     permission_classes = [permissions.AllowAny]
 
     @extend_schema(
-        tags=['Payments / Stripe'],
-        summary='Создать Stripe PaymentIntent',
+        tags=['Payments / FreedomPay'],
+        summary='Создать платёж FreedomPay',
         request=PaymentOrderRequestSerializer,
         responses={
-            200: StripeIntentResponseSerializer,
-            400: OpenApiResponse(description='Заказ уже оплачен или отменен'),
+            200: FreedomCreateResponseSerializer,
+            400: OpenApiResponse(description='Заказ уже оплачен / ошибка инициализации'),
             404: OpenApiResponse(description='Заказ не найден'),
         },
     )
@@ -106,172 +108,159 @@ class StripeCreateIntentView(APIView):
         if response is not None:
             return response
 
-        intent = stripe.PaymentIntent.create(
-            amount=int(order.total_amount * 100),  # в тиынах / центах
-            currency='kzt',
-            metadata={'order_number': order.order_number},
-        )
-
-        Payment.objects.update_or_create(
-            order=order,
-            provider=Payment.Provider.STRIPE,
-            defaults={
-                'amount': order.total_amount,
-                'provider_payment_id': intent.id,
-                'status': Payment.Status.PENDING,
-            }
-        )
-
-        return Response({'client_secret': intent.client_secret})
-
-
-@method_decorator(csrf_exempt, name='dispatch')
-class StripeWebhookView(APIView):
-    """
-    POST /payments/stripe/webhook/
-    Stripe отправляет события сюда
-    """
-    permission_classes = [permissions.AllowAny]
-
-    @extend_schema(
-        tags=['Payments / Stripe'],
-        summary='Stripe webhook',
-        request=StripeWebhookRequestSerializer,
-        responses={200: PaymentStatusResponseSerializer, 400: OpenApiResponse(description='Некорректная подпись')},
-    )
-    def post(self, request):
-        payload = request.body
-        sig_header = request.META.get('HTTP_STRIPE_SIGNATURE', '')
+        locale = _normalize_locale(request.data.get('locale'))
+        backend_url = settings.BACKEND_PUBLIC_URL.rstrip('/')
+        frontend_url = settings.FRONTEND_URL.rstrip('/')
+        result_url = f'{backend_url}/api/v1/payments/freedom/result'
+        success_url = f'{frontend_url}/{locale}/payment/success'
+        failure_url = f'{frontend_url}/{locale}/payment/fail'
 
         try:
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+            pg_status, pg_payment_id, redirect_url, raw = freedompay.init_payment(
+                order,
+                result_url=result_url,
+                success_url=success_url,
+                failure_url=failure_url,
+                locale=locale,
             )
-        except (ValueError, stripe.error.SignatureVerificationError):
-            return Response(status=400)
-
-        if event['type'] == 'payment_intent.succeeded':
-            intent = event['data']['object']
-            self._handle_payment_success(intent['id'], intent)
-
-        elif event['type'] == 'payment_intent.payment_failed':
-            intent = event['data']['object']
-            self._handle_payment_failed(intent['id'])
-
-        return Response({'status': 'ok'})
-
-    def _handle_payment_success(self, provider_id, raw_data):
-        payment = Payment.objects.filter(provider_payment_id=provider_id).first()
-        if not payment:
-            return
-        payment.status = Payment.Status.SUCCESS
-        payment.provider_data = raw_data
-        payment.save()
-
-        OrderStatusService.mark_paid(payment.order)
-
-    def _handle_payment_failed(self, provider_id):
-        payment = Payment.objects.select_related('order').filter(provider_payment_id=provider_id).first()
-        if not payment:
-            return
-        old_status = payment.status
-        payment.status = Payment.Status.FAILED
-        payment.save(update_fields=['status', 'updated_at'])
-        if old_status != Payment.Status.FAILED:
-            from apps.notifications.services import NotificationService
-
-            transaction.on_commit(
-                lambda: NotificationService.notify_payment_error(
-                    order=payment.order,
-                    provider=payment.provider,
-                    error_message='Stripe payment failed.',
-                )
+        except (requests.RequestException, ValueError) as exc:
+            return Response(
+                {'detail': f'Не удалось инициировать оплату: {exc}'}, status=400
             )
 
-
-class KaspiCreateView(APIView):
-    """
-    POST /payments/kaspi/create/
-    Генерируем URL для редиректа в Kaspi Pay
-    """
-    permission_classes = [permissions.AllowAny]
-
-    @extend_schema(
-        tags=['Payments / Kaspi'],
-        summary='Создать ссылку Kaspi Pay',
-        request=PaymentOrderRequestSerializer,
-        responses={200: KaspiCreateResponseSerializer, 404: OpenApiResponse(description='Заказ не найден')},
-    )
-    def post(self, request):
-        order, error_response = get_order_for_payment(request)
-        if error_response is not None:
-            return error_response
-
-        if order.status not in (Order.Status.NEW, Order.Status.WAITING_PAYMENT):
-            return Response({'detail': 'Заказ уже оплачен или отменён'}, status=400)
-        response = delivery_price_not_final_response(order)
-        if response is not None:
-            return response
-
-        # Kaspi Pay integration URL (упрощённо — реальная интеграция по документации Kaspi)
-        merchant_id = settings.KASPI_MERCHANT_ID
-        amount = int(order.total_amount)
-        redirect_url = f'https://kaspi.kz/online?OrderId={order.order_number}&Amount={amount}&MerchantId={merchant_id}'
+        if pg_status != 'ok' or not redirect_url:
+            return Response(
+                {
+                    'detail': raw.get('pg_error_description')
+                    or 'FreedomPay отклонил инициализацию платежа'
+                },
+                status=400,
+            )
 
         Payment.objects.update_or_create(
             order=order,
-            provider=Payment.Provider.KASPI,
+            provider=Payment.Provider.FREEDOM,
             defaults={
                 'amount': order.total_amount,
+                'currency': 'KZT',
+                'provider_payment_id': pg_payment_id,
                 'status': Payment.Status.PENDING,
-            }
+                'provider_data': raw,
+            },
         )
+
+        # Помечаем платёж ожидаемым (payment_status не завязан на машину
+        # состояний order.status — его меняем напрямую).
+        if order.payment_status in (Order.PaymentStatus.UNPAID, Order.PaymentStatus.FAILED):
+            order.payment_status = Order.PaymentStatus.WAITING
+            order.save(update_fields=['payment_status', 'updated_at'])
 
         return Response({'redirect_url': redirect_url})
 
 
 @method_decorator(csrf_exempt, name='dispatch')
-class KaspiWebhookView(APIView):
-    """POST /payments/kaspi/webhook/ — коллбэк от Kaspi"""
+class FreedomResultView(APIView):
+    """
+    POST /payments/freedom/result
+    Серверный callback FreedomPay о результате платежа.
+    Отвечает подписанным XML (pg_status=ok|rejected).
+    """
     permission_classes = [permissions.AllowAny]
 
     @extend_schema(
-        tags=['Payments / Kaspi'],
-        summary='Kaspi webhook',
-        request=KaspiWebhookRequestSerializer,
-        responses={200: PaymentStatusResponseSerializer, 404: OpenApiResponse(description='Заказ не найден')},
+        tags=['Payments / FreedomPay'],
+        summary='Callback результата оплаты FreedomPay',
+        request=None,
+        responses={200: OpenApiResponse(description='Подписанный XML-ответ')},
     )
     def post(self, request):
-        order_number = request.data.get('OrderId')
-        tx_status = request.data.get('Status')  # 'success' | 'failed'
+        params = {key: request.data.get(key) for key in request.data.keys()}
 
+        if not freedompay.verify_signature(freedompay.RESULT_SCRIPT, params):
+            return self._xml('rejected', 'Invalid signature')
+
+        order_number = params.get('pg_order_id')
         try:
             order = Order.objects.get(order_number=order_number)
         except Order.DoesNotExist:
-            return Response(status=404)
+            return self._xml('rejected', 'Order not found')
 
-        payment = Payment.objects.filter(order=order, provider=Payment.Provider.KASPI).first()
+        payment = Payment.objects.filter(
+            order=order, provider=Payment.Provider.FREEDOM
+        ).first()
 
-        if tx_status == 'success':
-            if payment:
+        is_success = str(params.get('pg_result')) == '1'
+
+        if is_success:
+            if payment and payment.status != Payment.Status.SUCCESS:
                 payment.status = Payment.Status.SUCCESS
-                payment.save()
-            OrderStatusService.mark_paid(order)
-
-        elif tx_status == 'failed':
-            if payment:
-                old_status = payment.status
+                payment.provider_data = params
+                payment.save(update_fields=['status', 'provider_data', 'updated_at'])
+            if order.payment_status != Order.PaymentStatus.PAID:
+                OrderStatusService.mark_paid(order)
+        else:
+            if payment and payment.status != Payment.Status.FAILED:
                 payment.status = Payment.Status.FAILED
-                payment.save(update_fields=['status', 'updated_at'])
-                if old_status != Payment.Status.FAILED:
-                    from apps.notifications.services import NotificationService
+                payment.provider_data = params
+                payment.save(update_fields=['status', 'provider_data', 'updated_at'])
 
-                    transaction.on_commit(
-                        lambda: NotificationService.notify_payment_error(
-                            order=order,
-                            provider=Payment.Provider.KASPI,
-                            error_message='Kaspi payment failed.',
-                        )
+                from apps.notifications.services import NotificationService
+
+                transaction.on_commit(
+                    lambda: NotificationService.notify_payment_error(
+                        order=order,
+                        provider=Payment.Provider.FREEDOM,
+                        error_message=params.get('pg_failure_description')
+                        or 'FreedomPay payment failed.',
                     )
+                )
 
-        return Response({'status': 'ok'})
+        return self._xml('ok')
+
+    @staticmethod
+    def _xml(status_value, description=''):
+        return HttpResponse(
+            freedompay.build_result_response(status_value, description),
+            content_type='application/xml',
+        )
+
+
+class FreedomStatusView(APIView):
+    """
+    GET /payments/freedom/status/?order_number=ORD-XXXX&email=...
+    Возвращает текущий статус заказа для опроса фронтендом.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        tags=['Payments / FreedomPay'],
+        summary='Статус оплаты заказа',
+        parameters=[
+            OpenApiParameter('order_number', str, required=True),
+            OpenApiParameter('email', str, required=False),
+        ],
+        responses={
+            200: PaymentStatusResponseSerializer,
+            403: OpenApiResponse(description='Нет доступа к заказу'),
+            404: OpenApiResponse(description='Заказ не найден'),
+        },
+    )
+    def get(self, request):
+        order_number = request.query_params.get('order_number')
+        try:
+            order = Order.objects.get(order_number=order_number)
+        except Order.DoesNotExist:
+            return Response({'detail': 'Заказ не найден'}, status=404)
+
+        error = _check_order_access(
+            order, user=request.user, email=request.query_params.get('email')
+        )
+        if error is not None:
+            return error
+
+        return Response(
+            {
+                'status': order.status,
+                'payment_status': order.payment_status,
+            }
+        )

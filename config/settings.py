@@ -316,11 +316,16 @@ EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@fashionshop.kz')
 
-# --- Payments ---
-STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY', default='')
-STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET', default='')
-KASPI_MERCHANT_ID = config('KASPI_MERCHANT_ID', default='')
-KASPI_SECRET = config('KASPI_SECRET', default='')
+# --- Payments (FreedomPay) ---
+FREEDOMPAY_MERCHANT_ID = config('FREEDOMPAY_MERCHANT_ID', default='')
+FREEDOMPAY_SECRET_KEY = config('FREEDOMPAY_SECRET_KEY', default='')
+FREEDOMPAY_API_URL = config('FREEDOMPAY_API_URL', default='https://api.freedompay.kz')
+FREEDOMPAY_TESTING_MODE = config('FREEDOMPAY_TESTING_MODE', default=1, cast=int)
+
+# Публичный URL бэкенда (должен быть доступен FreedomPay для result_url callback)
+BACKEND_PUBLIC_URL = config('BACKEND_PUBLIC_URL', default='http://localhost:8000')
+# URL фронтенда для построения success_url / fail_url
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
 
 # --- Phone numbers ---
 PHONENUMBER_DEFAULT_REGION = 'KZ'

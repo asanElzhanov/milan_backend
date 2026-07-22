@@ -13,10 +13,7 @@ class Payment(models.Model):
         REFUNDED = 'refunded', _('Возврат')
 
     class Provider(models.TextChoices):
-        STRIPE = 'stripe', 'Stripe'
-        KASPI = 'kaspi', 'Kaspi Pay'
         FREEDOM = 'freedom', 'Freedom Pay'
-        COD = 'cod', _('Наличными при получении')
 
     order = models.ForeignKey('orders.Order', on_delete=models.CASCADE, related_name='payments')
     provider = models.CharField(max_length=20, choices=Provider.choices)

@@ -16,7 +16,7 @@ shop_backend/
 │   ├── accounts/            # Пользователи, адреса, избранное, OTP
 │   ├── catalog/             # Категории, товары, отзывы, баннеры, промокоды
 │   ├── orders/              # Корзина + заказы
-│   ├── payments/            # Stripe, Kaspi Pay
+│   ├── payments/            # FreedomPay
 │   └── notifications/       # Email-уведомления (Celery tasks)
 │
 ├── requirements.txt
@@ -76,10 +76,9 @@ shop_backend/
 ### Payments — `/api/v1/payments/`
 | Метод | URL | Описание |
 |-------|-----|----------|
-| POST | `stripe/create-intent/` | Создать PaymentIntent |
-| POST | `stripe/webhook/` | Webhook от Stripe |
-| POST | `kaspi/create/` | Ссылка Kaspi Pay |
-| POST | `kaspi/webhook/` | Callback от Kaspi |
+| POST | `freedom/create/` | Инициировать платёж FreedomPay, вернуть `redirect_url` |
+| POST | `freedom/result` | Серверный callback результата оплаты (result_url) |
+| GET | `freedom/status/` | Статус оплаты заказа (для опроса фронтом) |
 
 ### Документация
 - Swagger UI: `/docs/`
