@@ -174,9 +174,12 @@ class FreedomCreatePaymentView(APIView):
 @method_decorator(csrf_exempt, name='dispatch')
 class FreedomResultView(APIView):
     """
-    POST /payments/freedom/result
+    GET/POST /payments/freedom/result
     Серверный callback FreedomPay о результате платежа.
     Отвечает подписанным XML (pg_status=ok|rejected).
+
+    Поддерживаем и POST, и GET: разные магазины FreedomPay шлют result_url
+    разными методами.
     """
     permission_classes = [permissions.AllowAny]
 
@@ -187,15 +190,38 @@ class FreedomResultView(APIView):
         responses={200: OpenApiResponse(description='Подписанный XML-ответ')},
     )
     def post(self, request):
-        params = {key: request.data.get(key) for key in request.data.keys()}
+        return self._handle(request, request.data)
+
+    @extend_schema(
+        tags=['Payments / FreedomPay'],
+        summary='Callback результата оплаты FreedomPay (GET)',
+        responses={200: OpenApiResponse(description='Подписанный XML-ответ')},
+    )
+    def get(self, request):
+        return self._handle(request, request.query_params)
+
+    def _handle(self, request, source):
+        params = {key: source.get(key) for key in source.keys()}
+        logger.info(
+            'FreedomPay result callback: method=%s order=%s result=%s params=%s',
+            request.method,
+            params.get('pg_order_id'),
+            params.get('pg_result'),
+            params,
+        )
 
         if not freedompay.verify_signature(freedompay.RESULT_SCRIPT, params):
+            logger.warning(
+                'FreedomPay result callback signature INVALID for order %s',
+                params.get('pg_order_id'),
+            )
             return self._xml('rejected', 'Invalid signature')
 
         order_number = params.get('pg_order_id')
         try:
             order = Order.objects.get(order_number=order_number)
         except Order.DoesNotExist:
+            logger.warning('FreedomPay result callback: order %s not found', order_number)
             return self._xml('rejected', 'Order not found')
 
         payment = Payment.objects.filter(
@@ -211,6 +237,7 @@ class FreedomResultView(APIView):
                 payment.save(update_fields=['status', 'provider_data', 'updated_at'])
             if order.payment_status != Order.PaymentStatus.PAID:
                 OrderStatusService.mark_paid(order)
+            logger.info('FreedomPay result callback: order %s marked PAID', order_number)
         else:
             if payment and payment.status != Payment.Status.FAILED:
                 payment.status = Payment.Status.FAILED
