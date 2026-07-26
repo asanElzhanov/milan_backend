@@ -9,6 +9,8 @@ from django.core.validators import MaxValueValidator, MinValueValidator, RegexVa
 from mptt.managers import TreeManager
 from mptt.models import MPTTModel, TreeForeignKey
 
+from .media_utils import media_file_validator, media_type_from_name
+
 
 class CategoryQuerySet(models.QuerySet):
     def active(self):
@@ -229,7 +231,12 @@ class Product(models.Model):
 
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')
-    image = models.ImageField(_('изображение'), upload_to='products/images/%Y/%m/%d/')
+    # The historic field/API name is kept for backwards compatibility.
+    image = models.FileField(
+        _('медиафайл'),
+        upload_to='products/images/%Y/%m/%d/',
+        validators=[media_file_validator],
+    )
     alt_text = models.CharField(_('alt text'), max_length=200, blank=True)
     is_main = models.BooleanField(_('главное фото'), default=False)
     sort_order = models.PositiveSmallIntegerField(default=0)
@@ -253,6 +260,10 @@ class ProductImage(models.Model):
 
     def __str__(self):
         return f'{self.product} image #{self.pk or "new"}'
+
+    @property
+    def media_type(self):
+        return media_type_from_name(self.image.name)
 
     def save(self, *args, **kwargs):
         with transaction.atomic():
@@ -653,8 +664,19 @@ class Banner(models.Model):
     button_text_ru = models.CharField(_('текст кнопки'), max_length=100, blank=True)
     button_text_kz = models.CharField(_('текст кнопки (каз.)'), max_length=100, blank=True, default='')
     button_text_en = models.CharField(_('текст кнопки (англ.)'), max_length=100, blank=True, default='')
-    image = models.ImageField(_('изображение'), upload_to='banners/%Y/%m/%d/')
-    image_mobile = models.ImageField(_('мобильное изображение'), upload_to='banners/%Y/%m/%d/', blank=True, null=True)
+    # Field names stay unchanged so current frontend integrations remain valid.
+    image = models.FileField(
+        _('медиафайл'),
+        upload_to='banners/%Y/%m/%d/',
+        validators=[media_file_validator],
+    )
+    image_mobile = models.FileField(
+        _('мобильный медиафайл'),
+        upload_to='banners/%Y/%m/%d/',
+        validators=[media_file_validator],
+        blank=True,
+        null=True,
+    )
     link = models.CharField(_('ссылка'), max_length=255, blank=True)
     position = models.CharField(max_length=10, choices=Position.choices, default=Position.HERO)
     is_active = models.BooleanField(_('активен'), default=True)
@@ -675,6 +697,14 @@ class Banner(models.Model):
 
     def __str__(self):
         return self.title_ru
+
+    @property
+    def image_type(self):
+        return media_type_from_name(self.image.name)
+
+    @property
+    def image_mobile_type(self):
+        return media_type_from_name(self.image_mobile.name) if self.image_mobile else None
 
     def clean(self):
         super().clean()

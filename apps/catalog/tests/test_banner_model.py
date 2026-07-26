@@ -30,6 +30,27 @@ class BannerModelTests(TestCase):
         self.assertEqual(banner.button_text_ru, 'Shop now')
         self.assertTrue(banner.is_active)
 
+    def test_accepts_gif_and_video_for_desktop_and_mobile(self):
+        banner = Banner(
+            title_ru='Video hero',
+            image=SimpleUploadedFile('hero.mp4', b'video content', content_type='video/mp4'),
+            image_mobile=SimpleUploadedFile('hero-mobile.gif', b'gif content', content_type='image/gif'),
+        )
+
+        banner.full_clean()
+
+        self.assertEqual(banner.image_type, 'video')
+        self.assertEqual(banner.image_mobile_type, 'image')
+
+    def test_rejects_unsupported_banner_media(self):
+        banner = Banner(
+            title_ru='Audio banner',
+            image=SimpleUploadedFile('banner.mp3', b'audio content', content_type='audio/mpeg'),
+        )
+
+        with self.assertRaises(ValidationError):
+            banner.full_clean()
+
     def test_link_allows_internal_path_or_absolute_url(self):
         internal = Banner(title_ru='Internal', image=self.make_image_file('internal.jpg'), link='/catalog/')
         external = Banner(title_ru='External', image=self.make_image_file('external.jpg'), link='https://example.com/sale')

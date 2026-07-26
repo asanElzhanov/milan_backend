@@ -63,9 +63,22 @@ class BannerAPITests(APITestCase):
                 'title_ru', 'title_kz', 'title_en',
                 'subtitle_ru', 'subtitle_kz', 'subtitle_en',
                 'button_text_ru', 'button_text_kz', 'button_text_en',
-                'image', 'image_mobile', 'link', 'position', 'sort_order',
+                'image', 'image_type', 'image_mobile', 'image_mobile_type',
+                'link', 'position', 'sort_order',
             },
         )
+
+    def test_banner_api_reports_video_type(self):
+        banner = self.make_banner(
+            'Video',
+            image=SimpleUploadedFile('hero.webm', b'video content', content_type='video/webm'),
+        )
+
+        response = self.client.get(self.list_url)
+
+        item = next(item for item in self.response_items(response) if item['id'] == banner.id)
+        self.assertEqual(item['image_type'], 'video')
+        self.assertIsNone(item['image_mobile_type'])
 
     def test_banner_list_filters_by_position(self):
         hero = self.make_banner('Hero', position=Banner.Position.HERO)

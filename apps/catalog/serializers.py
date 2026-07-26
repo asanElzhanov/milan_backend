@@ -61,11 +61,12 @@ class SizeSerializer(serializers.ModelSerializer):
 
 class ProductImageSerializer(serializers.ModelSerializer):
     alt = serializers.CharField(source='alt_text', read_only=True)
+    media_type = serializers.ReadOnlyField()
 
     class Meta:
         model = ProductImage
         fields = (
-            'id', 'image', 'alt_text', 'alt',
+            'id', 'image', 'media_type', 'alt_text', 'alt',
             'is_main', 'sort_order', 'created_at', 'updated_at',
         )
 
@@ -403,6 +404,7 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
 # Лёгкий сериализатор для списков
 class ProductListSerializer(serializers.ModelSerializer):
     main_image = serializers.SerializerMethodField()
+    main_media_type = serializers.SerializerMethodField()
     category = serializers.SerializerMethodField()
     brand = serializers.SerializerMethodField()
     brand_name = serializers.CharField(source='brand.name_ru', read_only=True)
@@ -424,7 +426,7 @@ class ProductListSerializer(serializers.ModelSerializer):
             'brand_name', 'category_name',
             'price', 'old_price', 'discount', 'discount_percent',
             'is_new', 'is_sale', 'is_active',
-            'main_image', 'min_price', 'in_stock',
+            'main_image', 'main_media_type', 'min_price', 'in_stock',
             'available_colors', 'available_sizes',
             'rating', 'average_rating', 'reviews_count',
         )
@@ -439,6 +441,14 @@ class ProductListSerializer(serializers.ModelSerializer):
             request = self.context.get('request')
             return request.build_absolute_uri(img.image.url) if request else img.image.url
         return None
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_main_media_type(self, obj):
+        images = list(obj.images.all())
+        media = next((item for item in images if item.is_main), None)
+        if media is None and images:
+            media = images[0]
+        return media.media_type if media else None
 
     @extend_schema_field(serializers.DictField())
     def get_category(self, obj):
@@ -619,13 +629,17 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 
 
 class BannerSerializer(serializers.ModelSerializer):
+    image_type = serializers.ReadOnlyField()
+    image_mobile_type = serializers.ReadOnlyField()
+
     class Meta:
         model = Banner
         fields = (
             'id', 'title_ru', 'title_kz', 'title_en',
             'subtitle_ru', 'subtitle_kz', 'subtitle_en',
             'button_text_ru', 'button_text_kz', 'button_text_en',
-            'image', 'image_mobile', 'link', 'position', 'sort_order',
+            'image', 'image_type', 'image_mobile', 'image_mobile_type',
+            'link', 'position', 'sort_order',
         )
 
 

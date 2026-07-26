@@ -517,7 +517,7 @@ class BannerAdmin(admin.ModelAdmin):
                 'button_text_ru', 'button_text_kz', 'button_text_en', 'link',
             ),
         }),
-        ('Изображения', {
+        ('Медиа (изображение, GIF или видео)', {
             'fields': ('image', 'image_mobile'),
         }),
         ('Показ', {

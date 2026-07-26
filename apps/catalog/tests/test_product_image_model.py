@@ -2,6 +2,7 @@ from decimal import Decimal
 import shutil
 import tempfile
 
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
@@ -45,6 +46,31 @@ class ProductImageModelTests(TestCase):
         self.assertEqual(image.product, self.product)
         self.assertTrue(image.image.name.startswith('products/images/'))
         self.assertEqual(image.alt_text, 'Black sneaker side view')
+
+    def test_accepts_gif_and_video_files_and_reports_media_type(self):
+        gif = ProductImage(
+            product=self.product,
+            image=self.make_image_file('animated.gif'),
+        )
+        video = ProductImage(
+            product=self.product,
+            image=SimpleUploadedFile('showcase.mp4', b'video content', content_type='video/mp4'),
+        )
+
+        gif.full_clean()
+        video.full_clean()
+
+        self.assertEqual(gif.media_type, 'image')
+        self.assertEqual(video.media_type, 'video')
+
+    def test_rejects_unsupported_media_extension(self):
+        media = ProductImage(
+            product=self.product,
+            image=SimpleUploadedFile('sound.mp3', b'audio content', content_type='audio/mpeg'),
+        )
+
+        with self.assertRaises(ValidationError):
+            media.full_clean()
 
     def test_only_one_main_image_per_product(self):
         first = ProductImage.objects.create(
