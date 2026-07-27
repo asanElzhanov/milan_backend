@@ -26,6 +26,7 @@ PaymentOrderRequestSerializer = inline_serializer(
         'order_number': serializers.CharField(),
         'email': serializers.EmailField(required=False),
         'locale': serializers.CharField(required=False),
+        'return_origin': serializers.CharField(required=False),
     },
 )
 FreedomCreateResponseSerializer = inline_serializer(
@@ -83,6 +84,31 @@ def _normalize_locale(value):
     return locale if locale in SUPPORTED_LOCALES else 'ru'
 
 
+def _resolve_frontend_base_url(request):
+    """Origin used to build the payment success/fail return URLs.
+
+    The user must return to the *same* origin they started on, because the auth
+    session lives in that origin's localStorage. ``localhost`` and ``127.0.0.1``
+    (or an apex vs. ``www`` host) are different origins, so a hardcoded
+    ``FRONTEND_URL`` can send the user back to an origin where they look logged
+    out. Prefer the browser's own origin (explicit ``return_origin`` field or the
+    ``Origin`` header) when it is in the trusted allowlist; otherwise fall back to
+    the configured ``FRONTEND_URL``.
+    """
+    default_url = settings.FRONTEND_URL.rstrip('/')
+    allowed = {default_url}
+    for origin in getattr(settings, 'CORS_ALLOWED_ORIGINS', None) or []:
+        allowed.add(str(origin).rstrip('/'))
+
+    candidate = str(request.data.get('return_origin') or '').strip().rstrip('/')
+    if not candidate:
+        candidate = str(request.headers.get('Origin') or '').strip().rstrip('/')
+
+    if candidate and candidate in allowed:
+        return candidate
+    return default_url
+
+
 class FreedomCreatePaymentView(APIView):
     """
     POST /payments/freedom/create/
@@ -114,7 +140,7 @@ class FreedomCreatePaymentView(APIView):
 
         locale = _normalize_locale(request.data.get('locale'))
         backend_url = settings.BACKEND_PUBLIC_URL.rstrip('/')
-        frontend_url = settings.FRONTEND_URL.rstrip('/')
+        frontend_url = _resolve_frontend_base_url(request)
         result_url = f'{backend_url}/api/v1/payments/freedom/result'
         success_url = f'{frontend_url}/{locale}/payment/success'
         failure_url = f'{frontend_url}/{locale}/payment/fail'
