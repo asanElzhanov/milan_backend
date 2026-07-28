@@ -1,9 +1,12 @@
 from decimal import Decimal
+from unittest.mock import patch
 
+from django.contrib import admin
 from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import User
+from apps.catalog.admin import ImportJobAdmin
 from apps.catalog.models import (
     Brand, Category, Color, ImportJob, ImportJobError,
     Product, ProductVariant, Size, StockMovement,
@@ -145,6 +148,36 @@ class ProductAdminTests(TestCase):
         self.assertContains(response, str(import_job.id))
         self.assertContains(response, 'completed_with_errors')
         self.assertContains(response, self.admin_user.email)
+
+    @patch('apps.catalog.admin.schedule_product_import')
+    def test_creating_import_job_in_admin_schedules_processing(self, schedule_import):
+        model_admin = ImportJobAdmin(ImportJob, admin.site)
+        import_job = ImportJob(
+            file='catalog/imports/products.csv',
+            created_by=self.admin_user,
+        )
+        model_admin.save_model(None, import_job, None, change=False)
+
+        schedule_import.assert_called_once_with(import_job.pk)
+
+    @patch('apps.catalog.admin.schedule_product_import')
+    def test_pending_import_can_be_scheduled_from_admin_action(self, schedule_import):
+        import_job = ImportJob.objects.create(
+            file='catalog/imports/products.csv',
+            created_by=self.admin_user,
+        )
+
+        response = self.client.post(
+            reverse('admin:catalog_importjob_changelist'),
+            {
+                'action': 'schedule_selected_imports',
+                '_selected_action': [import_job.pk],
+                'index': '0',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        schedule_import.assert_called_once_with(import_job.pk)
 
     def test_import_job_admin_searches_by_error_message(self):
         import_job = ImportJob.objects.create(

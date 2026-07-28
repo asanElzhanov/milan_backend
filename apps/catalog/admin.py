@@ -11,6 +11,7 @@ from .models import (
     ImportJob, ImportJobError,
 )
 from .services import ReviewModerationService, StockService
+from .tasks import schedule_product_import
 
 
 def _is_review_manager(user):
@@ -316,6 +317,7 @@ class ImportJobAdmin(admin.ModelAdmin):
     )
     ordering = ('-created_at',)
     autocomplete_fields = ('created_by',)
+    actions = ('schedule_selected_imports',)
     fieldsets = (
         ('Файл', {
             'fields': ('file', 'created_by'),
@@ -333,6 +335,25 @@ class ImportJobAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('created_by')
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if not change and obj.status == ImportJob.Status.PENDING:
+            schedule_product_import(obj.pk)
+
+    @admin.action(description='Запустить обработку выбранных импортов')
+    def schedule_selected_imports(self, request, queryset):
+        pending_jobs = queryset.filter(status=ImportJob.Status.PENDING)
+        scheduled_count = 0
+        for import_job_id in pending_jobs.values_list('pk', flat=True):
+            schedule_product_import(import_job_id)
+            scheduled_count += 1
+
+        self.message_user(
+            request,
+            f'Импортов поставлено в очередь: {scheduled_count}.',
+            level=messages.SUCCESS if scheduled_count else messages.WARNING,
+        )
 
 
 @admin.register(ImportJobError)
