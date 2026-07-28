@@ -65,6 +65,11 @@ export type MyReview = {
   rating: number;
   text: string;
   status: ReviewStatus;
+  status_labels: {
+    ru: string;
+    kz: string;
+    en: string;
+  };
   media: ReviewMedia[];
   is_verified_purchase: boolean;
   moderation_comment: string;
@@ -261,6 +266,11 @@ export async function createReviewWithMedia(
   "rating": 5,
   "text": "Отличные кроссовки",
   "status": "pending",
+  "status_labels": {
+    "ru": "На модерации",
+    "kz": "Модерацияда",
+    "en": "Pending moderation"
+  },
   "media": [
     {
       "id": 52,
@@ -314,6 +324,11 @@ Authorization: Bearer <access_token>
       "rating": 5,
       "text": "Отличные кроссовки",
       "status": "pending",
+      "status_labels": {
+        "ru": "На модерации",
+        "kz": "Модерацияда",
+        "en": "Pending moderation"
+      },
       "media": [],
       "is_verified_purchase": true,
       "moderation_comment": "",
@@ -336,16 +351,39 @@ export async function getMyReviews(accessToken: string, page = 1) {
 }
 ```
 
-Рекомендуемые подписи статусов:
+Backend возвращает подписи каждого статуса сразу на трёх языках в
+`status_labels`. Полный словарь:
 
 ```ts
-export const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
-  pending: "На модерации",
-  published: "Опубликован",
-  rejected: "Отклонён",
-  hidden: "Скрыт",
+export const REVIEW_STATUS_LABELS: Record<
+  ReviewStatus,
+  { ru: string; kz: string; en: string }
+> = {
+  pending: {
+    ru: "На модерации",
+    kz: "Модерацияда",
+    en: "Pending moderation",
+  },
+  published: {
+    ru: "Опубликован",
+    kz: "Жарияланған",
+    en: "Published",
+  },
+  rejected: {
+    ru: "Отклонён",
+    kz: "Қабылданбаған",
+    en: "Rejected",
+  },
+  hidden: {
+    ru: "Скрыт",
+    kz: "Жасырылған",
+    en: "Hidden",
+  },
 };
 ```
+
+Для вывода можно использовать `review.status_labels[currentLanguage]`, где
+`currentLanguage` имеет тип `"ru" | "kz" | "en"`.
 
 Для `rejected` можно показать пользователю `moderation_comment`, если менеджер
 его заполнил.

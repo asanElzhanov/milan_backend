@@ -3,6 +3,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
+from apps.common.views import SystemStatusRegistryView
 
 API_V1 = 'api/v1/'
 
@@ -14,6 +15,7 @@ urlpatterns = [
     path('docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='docs'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+    path(API_V1 + 'statuses/', SystemStatusRegistryView.as_view(), name='system-statuses'),
 
     # Apps
     path(API_V1 + 'auth/', include('apps.accounts.urls')),

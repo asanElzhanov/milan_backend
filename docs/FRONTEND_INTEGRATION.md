@@ -1,5 +1,7 @@
 # Frontend Integration Guide
 
+Полный трёхъязычный справочник системных статусов: [`STATUSES_FRONTEND_GUIDE.md`](STATUSES_FRONTEND_GUIDE.md).
+
 Руководство для подключения готового фронтенда к Django REST API магазина.
 
 ## База
@@ -1134,6 +1136,11 @@ Response `201`:
   "rating": 5,
   "text": "Good",
   "status": "pending",
+  "status_labels": {
+    "ru": "На модерации",
+    "kz": "Модерацияда",
+    "en": "Pending moderation"
+  },
   "media": [],
   "is_verified_purchase": true,
   "moderation_comment": "",

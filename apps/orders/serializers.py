@@ -1,5 +1,6 @@
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
+from apps.common.statuses import get_status_labels
 from .models import DeliveryMethod, Order, OrderItem, OrderStatusHistory, Cart, CartItem
 from .services import CartService, CheckoutService
 
@@ -156,28 +157,55 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 
 class OrderStatusHistorySerializer(serializers.ModelSerializer):
+    old_status_labels = serializers.SerializerMethodField()
+    new_status_labels = serializers.SerializerMethodField()
+
     class Meta:
         model = OrderStatusHistory
-        fields = ('old_status', 'new_status', 'changed_by', 'comment', 'created_at')
+        fields = (
+            'old_status', 'old_status_labels', 'new_status', 'new_status_labels',
+            'changed_by', 'comment', 'created_at',
+        )
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField(), allow_null=True))
+    def get_old_status_labels(self, obj):
+        return get_status_labels('order', obj.old_status) if obj.old_status else None
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_new_status_labels(self, obj):
+        return get_status_labels('order', obj.new_status)
 
 
 class OrderListSerializer(serializers.ModelSerializer):
     items_count = serializers.IntegerField(read_only=True)
+    status_labels = serializers.SerializerMethodField()
+    payment_status_labels = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = (
-            'order_number', 'status', 'payment_status',
+            'order_number', 'status', 'status_labels',
+            'payment_status', 'payment_status_labels',
             'delivery_method', 'delivery_method_code', 'delivery_method_name',
             'items_total', 'delivery_price', 'delivery_requires_manager_calculation',
             'delivery_price_is_final', 'promo_code_text', 'discount_amount',
             'total_amount', 'items_count', 'created_at',
         )
 
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_status_labels(self, obj):
+        return get_status_labels('order', obj.status)
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_payment_status_labels(self, obj):
+        return get_status_labels('order_payment', obj.payment_status)
+
 
 class OrderDetailSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     status_history = OrderStatusHistorySerializer(many=True, read_only=True)
+    status_labels = serializers.SerializerMethodField()
+    payment_status_labels = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -187,10 +215,19 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             'delivery_method_code', 'delivery_method_name',
             'items_total', 'delivery_price', 'delivery_requires_manager_calculation',
             'delivery_price_is_final', 'promo_code_text', 'discount_amount',
-            'total_amount', 'status', 'payment_status', 'comment',
+            'total_amount', 'status', 'status_labels',
+            'payment_status', 'payment_status_labels', 'comment',
             'items', 'status_history',
             'created_at',
         )
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_status_labels(self, obj):
+        return get_status_labels('order', obj.status)
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_payment_status_labels(self, obj):
+        return get_status_labels('order_payment', obj.payment_status)
 
 
 OrderSerializer = OrderDetailSerializer

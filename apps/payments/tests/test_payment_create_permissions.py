@@ -11,6 +11,7 @@ from apps.payments.models import Payment
 
 class FreedomCreatePermissionTests(APITestCase):
     create_url = '/api/v1/payments/freedom/create/'
+    status_url = '/api/v1/payments/freedom/status/'
 
     def create_order(self, *, user=None, email='customer@example.com'):
         return Order.objects.create(
@@ -109,3 +110,17 @@ class FreedomCreatePermissionTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(Payment.objects.filter(order=order).exists())
+
+    def test_status_response_contains_three_language_labels(self):
+        order = self.create_order(user=None, email='status-guest@example.com')
+
+        response = self.client.get(self.status_url, {
+            'order_number': order.order_number,
+            'email': order.email,
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], Order.Status.NEW)
+        self.assertEqual(response.data['status_labels']['kz'], 'Жаңа')
+        self.assertEqual(response.data['payment_status'], Order.PaymentStatus.UNPAID)
+        self.assertEqual(response.data['payment_status_labels']['en'], 'Unpaid')

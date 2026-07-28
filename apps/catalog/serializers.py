@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 from apps.orders.models import Order
 from apps.orders.services import PromoCodeError, PromoCodeService
+from apps.common.statuses import get_status_labels
 
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
@@ -222,11 +223,12 @@ class ImportJobUploadSerializer(serializers.ModelSerializer):
 class ImportJobBaseSerializer(serializers.ModelSerializer):
     created_by = serializers.SerializerMethodField()
     error_report = serializers.SerializerMethodField()
+    status_labels = serializers.SerializerMethodField()
 
     class Meta:
         model = ImportJob
         fields = (
-            'id', 'status', 'total_count', 'success_count', 'failed_count',
+            'id', 'status', 'status_labels', 'total_count', 'success_count', 'failed_count',
             'error_message', 'error_report', 'created_by',
             'started_at', 'finished_at', 'created_at',
         )
@@ -240,6 +242,10 @@ class ImportJobBaseSerializer(serializers.ModelSerializer):
             'email': obj.created_by.email,
             'full_name': obj.created_by.full_name,
         }
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_status_labels(self, obj):
+        return get_status_labels('import_job', obj.status)
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_error_report(self, obj):
@@ -291,12 +297,13 @@ class ReviewSerializer(serializers.ModelSerializer):
     media = ReviewMediaSerializer(source='images', many=True, read_only=True)
     product = serializers.SerializerMethodField()
     order = serializers.SerializerMethodField()
+    status_labels = serializers.SerializerMethodField()
 
     class Meta:
         model = Review
         fields = (
             'id', 'product', 'order', 'user_name', 'rating', 'text',
-            'status', 'media', 'is_verified_purchase', 'moderation_comment',
+            'status', 'status_labels', 'media', 'is_verified_purchase', 'moderation_comment',
             'moderated_at', 'created_at', 'updated_at',
         )
 
@@ -314,6 +321,10 @@ class ReviewSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.DictField())
     def get_order(self, obj):
         return {'id': obj.order_id, 'order_number': obj.order.order_number}
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_status_labels(self, obj):
+        return get_status_labels('review', obj.status)
 
 
 class ReviewListSerializer(serializers.ModelSerializer):

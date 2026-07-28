@@ -122,6 +122,11 @@ class ReviewApiTests(APITestCase):
         self.assertEqual(response.data['rating'], 5)
         self.assertEqual(response.data['text'], 'Excellent')
         self.assertEqual(response.data['status'], Review.Status.PENDING)
+        self.assertEqual(response.data['status_labels'], {
+            'ru': 'На модерации',
+            'kz': 'Модерацияда',
+            'en': 'Pending moderation',
+        })
         self.assertEqual(response.data['media'], [])
         self.assertTrue(response.data['is_verified_purchase'])
         review = Review.objects.get()
@@ -204,6 +209,9 @@ class ReviewApiTests(APITestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['id'], own_review.id)
         self.assertEqual(results[0]['status'], Review.Status.PENDING)
+        self.assertEqual(results[0]['status_labels']['ru'], 'На модерации')
+        self.assertEqual(results[0]['status_labels']['kz'], 'Модерацияда')
+        self.assertEqual(results[0]['status_labels']['en'], 'Pending moderation')
         self.assertEqual(results[0]['product']['id'], self.product.id)
         self.assertEqual(results[0]['order']['id'], order.id)
 

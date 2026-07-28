@@ -101,11 +101,21 @@ class OrderHistoryApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['order_number'], self.order.order_number)
+        self.assertEqual(response.data['status_labels'], {
+            'ru': 'Новый', 'kz': 'Жаңа', 'en': 'New',
+        })
+        self.assertEqual(response.data['payment_status_labels'], {
+            'ru': 'Не оплачен', 'kz': 'Төленбеген', 'en': 'Unpaid',
+        })
         self.assertEqual(response.data['customer_name'], 'Customer One')
         self.assertEqual(len(response.data['items']), 1)
         self.assertEqual(response.data['items'][0]['product_name'], 'History Product')
         self.assertEqual(len(response.data['status_history']), 1)
         self.assertEqual(response.data['status_history'][0]['new_status'], Order.Status.NEW)
+        self.assertEqual(
+            response.data['status_history'][0]['new_status_labels']['kz'],
+            'Жаңа',
+        )
 
     def test_user_cannot_open_other_user_order_detail(self):
         self.client.force_authenticate(user=self.user)

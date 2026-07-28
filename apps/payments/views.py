@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 
 from apps.orders.models import Order
 from apps.orders.services import OrderStatusService
+from apps.common.statuses import get_status_labels
 
 from . import freedompay
 from .models import Payment
@@ -37,7 +38,9 @@ PaymentStatusResponseSerializer = inline_serializer(
     name='PaymentStatusResponse',
     fields={
         'status': serializers.CharField(),
+        'status_labels': serializers.DictField(child=serializers.CharField()),
         'payment_status': serializers.CharField(),
+        'payment_status_labels': serializers.DictField(child=serializers.CharField()),
     },
 )
 
@@ -327,6 +330,10 @@ class FreedomStatusView(APIView):
         return Response(
             {
                 'status': order.status,
+                'status_labels': get_status_labels('order', order.status),
                 'payment_status': order.payment_status,
+                'payment_status_labels': get_status_labels(
+                    'order_payment', order.payment_status,
+                ),
             }
         )
