@@ -10,7 +10,7 @@ from .models import (
     ProductMedia, ProductVariant, Review, Size, StockMovement,
     ImportJob, ImportJobError,
 )
-from .services import ReviewModerationService
+from .services import ReviewModerationService, StockService
 
 
 def _is_review_manager(user):
@@ -79,7 +79,6 @@ class ProductStockFilter(admin.SimpleListFilter):
 class ProductVariantInline(admin.TabularInline):
     model = ProductVariant
     fields = ('size', 'color', 'sku', 'stock_quantity', 'variant_price', 'is_active')
-    readonly_fields = ('stock_quantity',)
     autocomplete_fields = ('size', 'color')
     extra = 1
 
@@ -154,6 +153,38 @@ class ProductAdmin(admin.ModelAdmin):
         queryset, may_have_duplicates = super().get_search_results(request, queryset, search_term)
         return queryset.distinct(), may_have_duplicates
 
+    def save_formset(self, request, form, formset, change):
+        if formset.model is not ProductVariant:
+            return super().save_formset(request, form, formset, change)
+
+        instances = formset.save(commit=False)
+        for deleted_object in formset.deleted_objects:
+            deleted_object.delete()
+
+        for variant in instances:
+            requested_quantity = variant.stock_quantity
+            if variant.pk:
+                current_quantity = ProductVariant.objects.only('stock_quantity').get(
+                    pk=variant.pk,
+                ).stock_quantity
+                variant.stock_quantity = current_quantity
+                variant.save()
+            else:
+                variant.stock_quantity = 0
+                variant.save()
+                current_quantity = 0
+
+            if requested_quantity != current_quantity:
+                StockService.manual_adjustment(
+                    variant,
+                    requested_quantity,
+                    user=request.user,
+                    comment='Количество изменено через Django admin.',
+                )
+                variant.stock_quantity = requested_quantity
+
+        formset.save_m2m()
+
     @admin.display(description='скидка')
     def discount_display(self, obj):
         return f'{obj.discount}%' if obj.discount else '—'
@@ -174,7 +205,7 @@ class ProductVariantAdmin(admin.ModelAdmin):
     search_fields = ('sku', 'product__name_ru', 'product__name_kz', 'product__name_en', 'product__slug')
     autocomplete_fields = ('product', 'size', 'color')
     ordering = ('product__name_ru', 'sku')
-    readonly_fields = ('stock_quantity', 'in_stock', 'created_at', 'updated_at')
+    readonly_fields = ('in_stock', 'created_at', 'updated_at')
     fieldsets = (
         ('Вариант', {
             'fields': ('product', 'sku', 'size', 'color', 'variant_price', 'is_active'),
@@ -197,6 +228,28 @@ class ProductVariantAdmin(admin.ModelAdmin):
                 output_field=models.BooleanField(),
             ),
         )
+
+    def save_model(self, request, obj, form, change):
+        requested_quantity = obj.stock_quantity
+        if change:
+            current_quantity = ProductVariant.objects.only('stock_quantity').get(
+                pk=obj.pk,
+            ).stock_quantity
+            obj.stock_quantity = current_quantity
+        else:
+            current_quantity = 0
+            obj.stock_quantity = 0
+
+        super().save_model(request, obj, form, change)
+
+        if requested_quantity != current_quantity:
+            StockService.manual_adjustment(
+                obj,
+                requested_quantity,
+                user=request.user,
+                comment='Количество изменено через Django admin.',
+            )
+            obj.stock_quantity = requested_quantity
 
 
 @admin.register(ProductImage)

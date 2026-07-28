@@ -70,12 +70,38 @@ class ProductAdminTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Admin Product')
 
-    def test_product_variant_admin_opens_with_read_only_stock(self):
+    def test_product_variant_admin_displays_editable_stock_field(self):
         response = self.client.get(reverse('admin:catalog_productvariant_change', args=[self.variant.pk]))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'VAR-ADMIN-42-BLACK')
-        self.assertContains(response, 'Остаток')
+        self.assertContains(response, 'name="stock_quantity"')
+
+    def test_product_variant_admin_allows_stock_change(self):
+        response = self.client.post(
+            reverse('admin:catalog_productvariant_change', args=[self.variant.pk]),
+            {
+                'product': self.product.pk,
+                'sku': self.variant.sku,
+                'size': self.size.pk,
+                'color': self.color.pk,
+                'stock_quantity': 8,
+                'variant_price': '',
+                'is_active': 'on',
+                '_save': 'Save',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.stock_quantity, 8)
+        movement = self.variant.stock_movements.get()
+        self.assertEqual(movement.quantity, 5)
+        self.assertEqual(
+            movement.operation_type,
+            StockMovement.OperationType.MANUAL_ADJUSTMENT,
+        )
+        self.assertEqual(movement.user, self.admin_user)
 
     def test_stock_movement_admin_is_read_only(self):
         movement = StockMovement.objects.create(
