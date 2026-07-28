@@ -7,7 +7,7 @@ from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 from rest_framework import filters, generics, permissions, status
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -339,6 +339,7 @@ class ProductDetailView(generics.RetrieveAPIView):
                 'reviews',
                 queryset=Review.objects.filter(status=Review.Status.PUBLISHED)
                 .select_related('user')
+                .prefetch_related('images')
                 .order_by('-created_at'),
                 to_attr='approved_reviews',
             ),
@@ -650,7 +651,7 @@ class ProductReviewListView(generics.ListAPIView):
         return Review.objects.filter(
             product__slug=self.kwargs['slug'],
             status=Review.Status.PUBLISHED,
-        ).select_related('user', 'product', 'order').order_by('-created_at')
+        ).select_related('user', 'product', 'order').prefetch_related('images').order_by('-created_at')
 
     @extend_schema(
         tags=['Catalog / Reviews'],
@@ -665,9 +666,10 @@ class ReviewCreateView(generics.CreateAPIView):
     """POST /catalog/reviews/"""
     serializer_class = ReviewCreateSerializer
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_queryset(self):
-        return Review.objects.select_related('product', 'user', 'order')
+        return Review.objects.select_related('product', 'user', 'order').prefetch_related('images')
 
     @extend_schema(
         tags=['Catalog / Reviews'],
@@ -676,7 +678,36 @@ class ReviewCreateView(generics.CreateAPIView):
         responses={201: ReviewSerializer, 400: OpenApiResponse(description='Ошибка валидации')},
     )
     def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        review = serializer.save()
+        review = self.get_queryset().get(pk=review.pk)
+        response_serializer = ReviewSerializer(review, context=self.get_serializer_context())
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class MyReviewListView(generics.ListAPIView):
+    """GET /catalog/reviews/mine/"""
+    serializer_class = ReviewSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Review.objects.none()
+        return (
+            Review.objects.filter(user=self.request.user)
+            .select_related('product', 'user', 'order')
+            .prefetch_related('images')
+            .order_by('-created_at')
+        )
+
+    @extend_schema(
+        tags=['Catalog / Reviews'],
+        summary='Мои отзывы',
+        responses={200: ReviewSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 
 class BannerListView(generics.ListAPIView):

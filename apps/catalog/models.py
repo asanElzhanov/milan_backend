@@ -646,7 +646,14 @@ class Review(models.Model):
 
 class ReviewImage(models.Model):
     review = models.ForeignKey(Review, on_delete=models.CASCADE, related_name='images')
-    image = models.ImageField(upload_to='reviews/')
+    image = models.FileField(
+        upload_to='reviews/%Y/%m/%d/',
+        validators=[media_file_validator],
+    )
+
+    @property
+    def media_type(self):
+        return media_type_from_name(self.image.name)
 
 
 class Banner(models.Model):

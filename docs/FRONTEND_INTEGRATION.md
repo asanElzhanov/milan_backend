@@ -1085,6 +1085,9 @@ POST /api/v1/payments/kaspi/webhook/
 
 ## Отзывы
 
+Полный контракт, multipart-примеры и сценарий личного кабинета описаны в
+[`REVIEWS_FRONTEND_GUIDE.md`](REVIEWS_FRONTEND_GUIDE.md).
+
 Публично:
 
 ```http
@@ -1111,7 +1114,7 @@ Request:
 
 Можно использовать `product_slug` вместо `product_id`, а также `order_id` вместо `order_number`.
 
-Response:
+Response `201`:
 
 ```json
 {
@@ -1119,7 +1122,9 @@ Response:
   "product": {
     "id": 1,
     "slug": "nike-air",
-    "name": "Nike Air"
+    "name_ru": "Nike Air",
+    "name_kz": "",
+    "name_en": "Nike Air"
   },
   "order": {
     "id": 1,
@@ -1129,11 +1134,21 @@ Response:
   "rating": 5,
   "text": "Good",
   "status": "pending",
-  "images": [],
+  "media": [],
   "is_verified_purchase": true,
+  "moderation_comment": "",
+  "moderated_at": null,
   "created_at": "2026-07-01T10:00:00+06:00",
   "updated_at": "2026-07-01T10:00:00+06:00"
 }
+```
+
+Фото и видео передаются как `multipart/form-data` повторяющимся полем `media`.
+Все отзывы текущего пользователя, включая ожидающие модерации и отклонённые:
+
+```http
+GET /api/v1/catalog/reviews/mine/
+Authorization: Bearer <access>
 ```
 
 ## Промокод без корзины

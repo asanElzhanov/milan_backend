@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
 from django.urls import reverse
@@ -13,6 +14,7 @@ from .models import (
     ImportJob, ImportJobError,
 )
 from .services import ProductReviewService
+from .media_utils import media_file_validator, media_type_from_name
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -275,15 +277,18 @@ class ImportJobErrorSerializer(serializers.ModelSerializer):
         )
 
 
-class ReviewImageSerializer(serializers.ModelSerializer):
+class ReviewMediaSerializer(serializers.ModelSerializer):
+    url = serializers.FileField(source='image', read_only=True)
+    media_type = serializers.CharField(read_only=True)
+
     class Meta:
         model = ReviewImage
-        fields = ('id', 'image')
+        fields = ('id', 'url', 'media_type')
 
 
 class ReviewSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField()
-    images = ReviewImageSerializer(many=True, read_only=True)
+    media = ReviewMediaSerializer(source='images', many=True, read_only=True)
     product = serializers.SerializerMethodField()
     order = serializers.SerializerMethodField()
 
@@ -291,7 +296,8 @@ class ReviewSerializer(serializers.ModelSerializer):
         model = Review
         fields = (
             'id', 'product', 'order', 'user_name', 'rating', 'text',
-            'status', 'images', 'is_verified_purchase', 'created_at', 'updated_at',
+            'status', 'media', 'is_verified_purchase', 'moderation_comment',
+            'moderated_at', 'created_at', 'updated_at',
         )
 
     @extend_schema_field(OpenApiTypes.STR)
@@ -312,10 +318,14 @@ class ReviewSerializer(serializers.ModelSerializer):
 
 class ReviewListSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField()
+    media = ReviewMediaSerializer(source='images', many=True, read_only=True)
 
     class Meta:
         model = Review
-        fields = ('id', 'user_name', 'rating', 'text', 'created_at')
+        fields = (
+            'id', 'user_name', 'rating', 'text', 'media',
+            'is_verified_purchase', 'created_at',
+        )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_user_name(self, obj):
@@ -327,13 +337,19 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
     product_slug = serializers.SlugField(required=False, write_only=True)
     order_id = serializers.IntegerField(required=False, write_only=True, min_value=1)
     order_number = serializers.CharField(required=False, write_only=True)
+    media = serializers.ListField(
+        child=serializers.FileField(),
+        required=False,
+        write_only=True,
+        max_length=settings.REVIEW_MAX_MEDIA_FILES,
+    )
 
     class Meta:
         model = Review
         fields = (
             'id', 'product', 'order',
             'product_id', 'product_slug', 'order_id', 'order_number',
-            'rating', 'text', 'status', 'created_at',
+            'rating', 'text', 'media', 'status', 'created_at',
         )
         read_only_fields = ('id', 'product', 'order', 'status', 'created_at')
 
@@ -352,6 +368,7 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         product = validated_data.pop('product')
         order = validated_data.pop('order')
+        media_files = validated_data.pop('media', [])
         validated_data.pop('product_id', None)
         validated_data.pop('product_slug', None)
         validated_data.pop('order_id', None)
@@ -361,10 +378,44 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
                 user=self.context['request'].user,
                 product=product,
                 order=order,
+                media_files=media_files,
                 **validated_data,
             )
         except DjangoValidationError as exc:
             raise serializers.ValidationError(self._error_detail(exc)) from exc
+
+    def validate_media(self, media_files):
+        errors = {}
+        for index, media_file in enumerate(media_files):
+            try:
+                media_file_validator(media_file)
+            except DjangoValidationError as exc:
+                errors[index] = list(exc.messages)
+                continue
+
+            media_type = media_type_from_name(media_file.name)
+            max_size = (
+                settings.REVIEW_MAX_VIDEO_SIZE
+                if media_type == 'video'
+                else settings.REVIEW_MAX_IMAGE_SIZE
+            )
+            if media_file.size > max_size:
+                max_size_mb = max_size // (1024 * 1024)
+                errors[index] = [f'Размер файла не должен превышать {max_size_mb} МБ.']
+                continue
+
+            content_type = (getattr(media_file, 'content_type', '') or '').lower()
+            expected_prefix = f'{media_type}/'
+            if (
+                content_type
+                and content_type != 'application/octet-stream'
+                and not content_type.startswith(expected_prefix)
+            ):
+                errors[index] = ['Тип содержимого файла не соответствует его расширению.']
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return media_files
 
     @staticmethod
     def _resolve_product(attrs):

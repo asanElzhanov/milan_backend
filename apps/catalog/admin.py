@@ -3,7 +3,7 @@ from django.contrib import admin, messages
 from django.db import models
 from django.db.models import Exists, OuterRef
 from django.urls import reverse
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from mptt.admin import MPTTModelAdmin
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
@@ -411,13 +411,16 @@ class ReviewAdmin(admin.ModelAdmin):
     )
     readonly_fields = (
         'product', 'user', 'order', 'rating', 'text',
-        'created_at', 'updated_at', 'moderated_by', 'moderated_at',
+        'media_files', 'created_at', 'updated_at', 'moderated_by', 'moderated_at',
     )
     ordering = ('-created_at',)
     actions = ('publish_reviews', 'reject_reviews', 'hide_reviews')
     fieldsets = (
         ('Отзыв', {
-            'fields': ('product', 'user', 'order', 'rating', 'text', 'is_verified_purchase'),
+            'fields': (
+                'product', 'user', 'order', 'rating', 'text',
+                'media_files', 'is_verified_purchase',
+            ),
         }),
         ('Модерация', {
             'fields': ('status', 'moderated_by', 'moderated_at', 'moderation_comment'),
@@ -428,8 +431,10 @@ class ReviewAdmin(admin.ModelAdmin):
     )
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related(
-            'product', 'user', 'order', 'moderated_by',
+        return (
+            super().get_queryset(request)
+            .select_related('product', 'user', 'order', 'moderated_by')
+            .prefetch_related('images')
         )
 
     def has_module_permission(self, request):
@@ -477,6 +482,19 @@ class ReviewAdmin(admin.ModelAdmin):
         if len(text) <= 100:
             return text
         return f'{text[:100]}...'
+
+    @admin.display(description='фото и видео')
+    def media_files(self, obj):
+        if not obj.pk:
+            return '—'
+        media = list(obj.images.all())
+        if not media:
+            return '—'
+        return format_html_join(
+            format_html('<br>'),
+            '<a href="{}" target="_blank" rel="noopener">{}: {}</a>',
+            ((item.image.url, item.media_type, item.image.name) for item in media),
+        )
 
     @admin.display(description='товар', ordering='product__name_ru')
     def product_link(self, obj):

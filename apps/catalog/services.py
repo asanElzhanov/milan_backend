@@ -9,7 +9,7 @@ from django.utils import timezone
 from apps.accounts.models import User
 from apps.orders.models import Order
 
-from .models import ProductVariant, Review, StockMovement
+from .models import ProductVariant, Review, ReviewImage, StockMovement
 
 
 class InvalidStockQuantityError(ValidationError):
@@ -157,8 +157,9 @@ class ProductReviewService:
         return True
 
     @classmethod
-    def create_review(cls, *, user, product, order, rating, text=''):
+    def create_review(cls, *, user, product, order, rating, text='', media_files=None):
         rating = cls._validate_rating(rating)
+        media_files = media_files or []
         with transaction.atomic():
             cls.can_review_product(user, product, order)
             try:
@@ -175,6 +176,10 @@ class ProductReviewService:
                 raise DuplicateReviewError(
                     'Вы уже оставили отзыв на этот товар в рамках этого заказа.'
                 ) from exc
+            ReviewImage.objects.bulk_create([
+                ReviewImage(review=review, image=media_file)
+                for media_file in media_files
+            ])
             from apps.notifications.services import NotificationService
 
             transaction.on_commit(lambda: NotificationService.notify_new_review(review))

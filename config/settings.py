@@ -143,6 +143,11 @@ REST_FRAMEWORK = {
     },
 }
 
+# --- Review media ---
+REVIEW_MAX_MEDIA_FILES = config('REVIEW_MAX_MEDIA_FILES', default=5, cast=int)
+REVIEW_MAX_IMAGE_SIZE = config('REVIEW_MAX_IMAGE_SIZE_MB', default=10, cast=int) * 1024 * 1024
+REVIEW_MAX_VIDEO_SIZE = config('REVIEW_MAX_VIDEO_SIZE_MB', default=50, cast=int) * 1024 * 1024
+
 # --- Recommendations ---
 RECOMMENDATIONS_ENABLED = config('RECOMMENDATIONS_ENABLED', default=True, cast=bool)
 RECOMMENDATION_ALGORITHM_VERSION = config('RECOMMENDATION_ALGORITHM_VERSION', default='v1')
