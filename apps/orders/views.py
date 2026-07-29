@@ -456,13 +456,9 @@ class OrderDetailView(generics.RetrieveAPIView):
         return super().get(request, *args, **kwargs)
 
 
-OrderCancelRequestSerializer = inline_serializer(
-    name='OrderCancelRequest',
-    fields={
-        'email': serializers.EmailField(required=False),
-        'comment': serializers.CharField(required=False, allow_blank=True),
-    },
-)
+class OrderCancelRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False)
+    comment = serializers.CharField(required=False, allow_blank=True)
 
 # Статусы, из которых покупатель может отменить заказ самостоятельно
 # (заказ ещё не оплачен). Отмену оплаченных/обрабатываемых заказов проводит
