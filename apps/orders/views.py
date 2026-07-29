@@ -21,7 +21,15 @@ from .serializers import (
     OrderCreateSerializer,
     OrderSerializer,
 )
-from .services import CartError, CartNotFoundError, CartService, CheckoutError, PromoCodeError
+from .services import (
+    CartError,
+    CartNotFoundError,
+    CartService,
+    CheckoutError,
+    InvalidOrderStatusTransitionError,
+    OrderStatusService,
+    PromoCodeError,
+)
 
 
 OrderDetailResponseSerializer = inline_serializer(
@@ -446,3 +454,89 @@ class OrderDetailView(generics.RetrieveAPIView):
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
+
+OrderCancelRequestSerializer = inline_serializer(
+    name='OrderCancelRequest',
+    fields={
+        'email': serializers.EmailField(required=False),
+        'comment': serializers.CharField(required=False, allow_blank=True),
+    },
+)
+
+# Статусы, из которых покупатель может отменить заказ самостоятельно
+# (заказ ещё не оплачен). Отмену оплаченных/обрабатываемых заказов проводит
+# менеджер через админку.
+CUSTOMER_CANCELLABLE_STATUSES = {Order.Status.NEW, Order.Status.WAITING_PAYMENT}
+
+
+def check_order_cancel_access(order, *, user, email):
+    """Владелец заказа или гость с совпадающим email могут его отменить."""
+    if order.user_id:
+        if not user or not user.is_authenticated or order.user_id != user.id:
+            return Response({'detail': 'Нет доступа к заказу'}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    email = str(email or '').strip().lower()
+    if not email or email != order.email.lower():
+        return Response({'detail': 'Нет доступа к заказу'}, status=status.HTTP_403_FORBIDDEN)
+    return None
+
+
+class OrderCancelView(APIView):
+    """POST /orders/<order_number>/cancel/ — отменить заказ."""
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        tags=['Orders'],
+        summary='Отменить заказ',
+        request=OrderCancelRequestSerializer,
+        responses={
+            200: OrderDetailSerializer,
+            400: OrderDetailResponseSerializer,
+            403: OrderDetailResponseSerializer,
+            404: OpenApiResponse(description='Заказ не найден'),
+        },
+    )
+    def post(self, request, order_number):
+        serializer = OrderCancelRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            order = Order.objects.get(order_number=order_number)
+        except Order.DoesNotExist:
+            return Response({'detail': 'Заказ не найден'}, status=status.HTTP_404_NOT_FOUND)
+
+        error = check_order_cancel_access(
+            order,
+            user=request.user,
+            email=serializer.validated_data.get('email'),
+        )
+        if error is not None:
+            return error
+
+        if order.status == Order.Status.CANCELLED:
+            return Response(
+                OrderSerializer(load_order_for_response(order)).data,
+                status=status.HTTP_200_OK,
+            )
+
+        if order.status not in CUSTOMER_CANCELLABLE_STATUSES:
+            return Response(
+                {'detail': 'Этот заказ нельзя отменить онлайн. Свяжитесь с менеджером.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            OrderStatusService.cancel_order(
+                order,
+                changed_by=request.user if request.user.is_authenticated else None,
+                comment=serializer.validated_data.get('comment') or 'Отменён покупателем.',
+            )
+        except InvalidOrderStatusTransitionError as exc:
+            return cart_error_response(exc)
+
+        return Response(
+            OrderSerializer(load_order_for_response(order)).data,
+            status=status.HTTP_200_OK,
+        )

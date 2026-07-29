@@ -264,9 +264,24 @@ class FreedomResultView(APIView):
                 payment.status = Payment.Status.SUCCESS
                 payment.provider_data = params
                 payment.save(update_fields=['status', 'provider_data', 'updated_at'])
-            if order.payment_status != Order.PaymentStatus.PAID:
-                OrderStatusService.mark_paid(order)
-            logger.info('FreedomPay result callback: order %s marked PAID', order_number)
+            # Заказ мог быть отменён (в т.ч. авто-отмена по таймауту) до прихода
+            # успешного колбэка. В этом случае не двигаем статус заказа — платёж
+            # остаётся SUCCESS для ручного разбора менеджером (возврат средств).
+            if order.status in (
+                Order.Status.NEW,
+                Order.Status.WAITING_PAYMENT,
+                Order.Status.PAID,
+            ):
+                if order.payment_status != Order.PaymentStatus.PAID:
+                    OrderStatusService.mark_paid(order)
+                logger.info('FreedomPay result callback: order %s marked PAID', order_number)
+            else:
+                logger.warning(
+                    'FreedomPay result callback: successful payment for order %s in '
+                    'non-payable status %s — needs manual review',
+                    order_number,
+                    order.status,
+                )
         else:
             if payment and payment.status != Payment.Status.FAILED:
                 payment.status = Payment.Status.FAILED

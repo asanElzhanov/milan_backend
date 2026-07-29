@@ -105,6 +105,12 @@ CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=REDIS_URL)
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 
+# --- Orders / payment timeout ---
+# Через сколько минут неоплаченный заказ автоматически отменяется.
+ORDER_PAYMENT_TIMEOUT_MINUTES = config('ORDER_PAYMENT_TIMEOUT_MINUTES', default=30, cast=int)
+# Как часто (в минутах) Celery-beat проверяет заказы на истечение времени оплаты.
+ORDER_EXPIRY_CHECK_MINUTES = config('ORDER_EXPIRY_CHECK_MINUTES', default=5, cast=int)
+
 # --- Auth ---
 AUTH_USER_MODEL = 'accounts.User'
 
@@ -241,6 +247,10 @@ CELERY_BEAT_SCHEDULE = {
     'recommendations-reconcile': {
         'task': 'recommendations.reconcile_recommendation_aggregates',
         'schedule': timedelta(hours=config('RECOMMENDATION_RECONCILE_HOURS', default=24, cast=int)),
+    },
+    'orders-cancel-expired': {
+        'task': 'orders.cancel_expired_orders',
+        'schedule': timedelta(minutes=ORDER_EXPIRY_CHECK_MINUTES),
     },
 }
 

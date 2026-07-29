@@ -22,12 +22,23 @@ STATUS_LABELS = {
             'ru': 'Средства возвращены', 'kz': 'Қаражат қайтарылды', 'en': 'Refunded',
         },
         'cancelled': {'ru': 'Отменён', 'kz': 'Бас тартылды', 'en': 'Cancelled'},
+        'expired': {
+            'ru': 'Время оплаты истекло',
+            'kz': 'Төлем уақыты өтті',
+            'en': 'Payment time expired',
+        },
     },
     'payment': {
         'pending': {'ru': 'Ожидает', 'kz': 'Күтілуде', 'en': 'Pending'},
         'success': {'ru': 'Успешно', 'kz': 'Сәтті', 'en': 'Successful'},
         'failed': {'ru': 'Ошибка', 'kz': 'Қате', 'en': 'Failed'},
         'refunded': {'ru': 'Возвращён', 'kz': 'Қайтарылды', 'en': 'Refunded'},
+        'cancelled': {'ru': 'Отменён', 'kz': 'Бас тартылды', 'en': 'Cancelled'},
+        'expired': {
+            'ru': 'Время оплаты истекло',
+            'kz': 'Төлем уақыты өтті',
+            'en': 'Payment time expired',
+        },
     },
     'import_job': {
         'pending': {

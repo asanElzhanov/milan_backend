@@ -29,6 +29,7 @@ class Order(models.Model):
         FAILED = 'failed', _('Ошибка оплаты')
         REFUNDED = 'refunded', _('Возвращён')
         CANCELLED = 'cancelled', _('Отменён')
+        EXPIRED = 'expired', _('Время оплаты истекло')
 
     class DeliveryMethod(models.TextChoices):
         COURIER = 'courier', _('Курьер')
