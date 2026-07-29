@@ -41,6 +41,85 @@ class ProductAdminTests(TestCase):
             stock_quantity=3,
         )
 
+    def login_as_manager(self):
+        manager = User.objects.create_user(
+            email='catalog-manager@example.com',
+            password='secret123',
+            role=User.Role.MANAGER,
+            is_staff=True,
+        )
+        self.client.force_login(manager)
+        return manager
+
+    def test_manager_has_catalog_crud_access_without_explicit_model_permissions(self):
+        self.login_as_manager()
+
+        changelist_response = self.client.get(reverse('admin:catalog_product_changelist'))
+        change_response = self.client.get(
+            reverse('admin:catalog_product_change', args=[self.product.pk]),
+        )
+        delete_response = self.client.get(
+            reverse('admin:catalog_product_delete', args=[self.product.pk]),
+        )
+
+        self.assertEqual(changelist_response.status_code, 200)
+        self.assertEqual(change_response.status_code, 200)
+        self.assertContains(change_response, 'id_variants-TOTAL_FORMS')
+        self.assertContains(change_response, 'id_images-TOTAL_FORMS')
+        self.assertContains(change_response, 'id_media-TOTAL_FORMS')
+        self.assertEqual(delete_response.status_code, 200)
+
+    def test_manager_can_delete_product_without_protected_history(self):
+        self.login_as_manager()
+
+        response = self.client.post(
+            reverse('admin:catalog_product_delete', args=[self.product.pk]),
+            {'post': 'yes'},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Product.objects.filter(pk=self.product.pk).exists())
+
+    def test_manager_can_manage_catalog_references(self):
+        self.login_as_manager()
+
+        for url_name in (
+            'admin:catalog_category_changelist',
+            'admin:catalog_brand_changelist',
+            'admin:catalog_color_changelist',
+            'admin:catalog_size_changelist',
+            'admin:catalog_productvariant_changelist',
+            'admin:catalog_productimage_changelist',
+            'admin:catalog_productmedia_changelist',
+            'admin:catalog_banner_changelist',
+            'admin:catalog_importjob_changelist',
+        ):
+            with self.subTest(url_name=url_name):
+                self.assertEqual(self.client.get(reverse(url_name)).status_code, 200)
+
+    def test_manager_can_view_but_not_modify_stock_history(self):
+        manager = self.login_as_manager()
+        movement = StockMovement.objects.create(
+            variant=self.variant,
+            quantity=1,
+            operation_type=StockMovement.OperationType.INCOME,
+            user=manager,
+        )
+
+        changelist_response = self.client.get(
+            reverse('admin:catalog_stockmovement_changelist'),
+        )
+        change_response = self.client.get(
+            reverse('admin:catalog_stockmovement_change', args=[movement.pk]),
+        )
+        delete_response = self.client.get(
+            reverse('admin:catalog_stockmovement_delete', args=[movement.pk]),
+        )
+
+        self.assertEqual(changelist_response.status_code, 200)
+        self.assertEqual(change_response.status_code, 200)
+        self.assertEqual(delete_response.status_code, 403)
+
     def test_product_changelist_opens(self):
         response = self.client.get(reverse('admin:catalog_product_changelist'))
 

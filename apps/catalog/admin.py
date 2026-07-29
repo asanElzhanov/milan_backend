@@ -14,6 +14,48 @@ from .services import ReviewModerationService, StockService
 from .tasks import schedule_product_import
 
 
+def _has_catalog_management_access(user):
+    """Grant operational catalog access to staff managers and administrators."""
+    return bool(
+        user
+        and user.is_active
+        and user.is_staff
+        and (
+            getattr(user, 'is_superuser', False)
+            or getattr(user, 'role', None) in {'manager', 'admin'}
+        )
+    )
+
+
+class CatalogManagementAccessMixin:
+    """Give catalog staff CRUD access without assigning every model permission."""
+
+    def has_module_permission(self, request):
+        if _has_catalog_management_access(request.user):
+            return True
+        return super().has_module_permission(request)
+
+    def has_view_permission(self, request, obj=None):
+        if _has_catalog_management_access(request.user):
+            return True
+        return super().has_view_permission(request, obj)
+
+    def has_add_permission(self, request, obj=None):
+        if _has_catalog_management_access(request.user):
+            return True
+        return super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if _has_catalog_management_access(request.user):
+            return True
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if _has_catalog_management_access(request.user):
+            return True
+        return super().has_delete_permission(request, obj)
+
+
 def _is_review_manager(user):
     return bool(
         user
@@ -77,21 +119,21 @@ class ProductStockFilter(admin.SimpleListFilter):
         return queryset
 
 
-class ProductVariantInline(admin.TabularInline):
+class ProductVariantInline(CatalogManagementAccessMixin, admin.TabularInline):
     model = ProductVariant
     fields = ('size', 'color', 'sku', 'stock_quantity', 'variant_price', 'is_active')
     autocomplete_fields = ('size', 'color')
     extra = 1
 
 
-class ProductImageInline(admin.TabularInline):
+class ProductImageInline(CatalogManagementAccessMixin, admin.TabularInline):
     model = ProductImage
     fields = ('image', 'is_main', 'sort_order', 'alt_text', 'created_at', 'updated_at')
     readonly_fields = ('created_at', 'updated_at')
     extra = 1
 
 
-class ProductMediaInline(admin.TabularInline):
+class ProductMediaInline(CatalogManagementAccessMixin, admin.TabularInline):
     model = ProductMedia
     fields = ('media_type', 'file', 'url', 'title_ru', 'title_kz', 'title_en', 'alt_text', 'sort_order', 'is_active', 'created_at', 'updated_at')
     readonly_fields = ('created_at', 'updated_at')
@@ -99,7 +141,7 @@ class ProductMediaInline(admin.TabularInline):
 
 
 @admin.register(Product)
-class ProductAdmin(admin.ModelAdmin):
+class ProductAdmin(CatalogManagementAccessMixin, admin.ModelAdmin):
     list_display = (
         'name_ru', 'name_kz', 'name_en', 'slug', 'category', 'brand',
         'price', 'old_price', 'discount_display',
@@ -200,7 +242,7 @@ class ProductAdmin(admin.ModelAdmin):
 
 
 @admin.register(ProductVariant)
-class ProductVariantAdmin(admin.ModelAdmin):
+class ProductVariantAdmin(CatalogManagementAccessMixin, admin.ModelAdmin):
     list_display = ('product', 'sku', 'size', 'color', 'stock_quantity', 'variant_price', 'is_active', 'in_stock')
     list_filter = ('product__category', 'product__brand', 'size', 'color', 'is_active', ProductStockFilter)
     search_fields = ('sku', 'product__name_ru', 'product__name_kz', 'product__name_en', 'product__slug')
@@ -254,7 +296,7 @@ class ProductVariantAdmin(admin.ModelAdmin):
 
 
 @admin.register(ProductImage)
-class ProductImageAdmin(admin.ModelAdmin):
+class ProductImageAdmin(CatalogManagementAccessMixin, admin.ModelAdmin):
     list_display = ('product', 'image', 'is_main', 'sort_order', 'alt_text', 'created_at')
     list_filter = ('is_main',)
     search_fields = ('product__name_ru', 'product__name_kz', 'product__name_en', 'product__slug', 'alt_text')
@@ -286,6 +328,16 @@ class StockMovementAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         return False
 
+    def has_module_permission(self, request):
+        if _has_catalog_management_access(request.user):
+            return True
+        return super().has_module_permission(request)
+
+    def has_view_permission(self, request, obj=None):
+        if _has_catalog_management_access(request.user):
+            return True
+        return super().has_view_permission(request, obj)
+
     def has_change_permission(self, request, obj=None):
         if obj is None:
             return super().has_change_permission(request, obj)
@@ -296,7 +348,7 @@ class StockMovementAdmin(admin.ModelAdmin):
 
 
 @admin.register(ImportJob)
-class ImportJobAdmin(admin.ModelAdmin):
+class ImportJobAdmin(CatalogManagementAccessMixin, admin.ModelAdmin):
     list_display = (
         'id', 'status', 'created_by',
         'total_count', 'success_count', 'failed_count',
@@ -373,6 +425,16 @@ class ImportJobErrorAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         return False
 
+    def has_module_permission(self, request):
+        if _has_catalog_management_access(request.user):
+            return True
+        return super().has_module_permission(request)
+
+    def has_view_permission(self, request, obj=None):
+        if _has_catalog_management_access(request.user):
+            return True
+        return super().has_view_permission(request, obj)
+
     def has_change_permission(self, request, obj=None):
         if obj is None:
             return super().has_change_permission(request, obj)
@@ -383,7 +445,7 @@ class ImportJobErrorAdmin(admin.ModelAdmin):
 
 
 @admin.register(ProductMedia)
-class ProductMediaAdmin(admin.ModelAdmin):
+class ProductMediaAdmin(CatalogManagementAccessMixin, admin.ModelAdmin):
     list_display = ('product', 'media_type', 'title_ru', 'title_kz', 'title_en', 'is_active', 'sort_order')
     list_filter = ('media_type', 'is_active')
     search_fields = (
@@ -549,7 +611,7 @@ class ReviewAdmin(admin.ModelAdmin):
 
 
 @admin.register(Category)
-class CategoryAdmin(MPTTModelAdmin):
+class CategoryAdmin(CatalogManagementAccessMixin, MPTTModelAdmin):
     list_display = ('name_ru', 'name_kz', 'name_en', 'slug', 'parent', 'is_active', 'sort_order')
     list_editable = ('is_active', 'sort_order')
     list_filter = ('is_active',)
@@ -559,7 +621,7 @@ class CategoryAdmin(MPTTModelAdmin):
     readonly_fields = ('created_at', 'updated_at')
 
 @admin.register(Brand)
-class BrandAdmin(admin.ModelAdmin):
+class BrandAdmin(CatalogManagementAccessMixin, admin.ModelAdmin):
     list_display = ('name_ru', 'name_kz', 'name_en', 'slug', 'is_active', 'logo')
     list_filter = ('is_active',)
     search_fields = ('name_ru', 'name_kz', 'name_en', 'slug')
@@ -568,7 +630,7 @@ class BrandAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'updated_at')
 
 @admin.register(Color)
-class ColorAdmin(admin.ModelAdmin):
+class ColorAdmin(CatalogManagementAccessMixin, admin.ModelAdmin):
     list_display = ('name_ru', 'name_kz', 'name_en', 'slug', 'hex_code', 'is_active')
     list_filter = ('is_active',)
     search_fields = ('name_ru', 'name_kz', 'name_en', 'slug', 'hex_code')
@@ -578,7 +640,7 @@ class ColorAdmin(admin.ModelAdmin):
 
 
 @admin.register(Size)
-class SizeAdmin(admin.ModelAdmin):
+class SizeAdmin(CatalogManagementAccessMixin, admin.ModelAdmin):
     list_display = ('value', 'size_type', 'sort_order', 'is_active')
     list_filter = ('size_type', 'is_active')
     search_fields = ('value',)
@@ -588,7 +650,7 @@ class SizeAdmin(admin.ModelAdmin):
 
 
 @admin.register(Banner)
-class BannerAdmin(admin.ModelAdmin):
+class BannerAdmin(CatalogManagementAccessMixin, admin.ModelAdmin):
     list_display = (
         'title_ru', 'title_kz', 'title_en', 'subtitle_ru', 'link', 'sort_order',
         'is_active', 'created_at', 'updated_at',
