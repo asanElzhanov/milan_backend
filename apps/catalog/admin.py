@@ -1,8 +1,10 @@
 from django import forms
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.db import models
 from django.db.models import Exists, OuterRef
-from django.urls import reverse
+from django.shortcuts import redirect
+from django.urls import path, reverse
 from django.utils.html import format_html, format_html_join
 from mptt.admin import MPTTModelAdmin
 from .models import (
@@ -619,6 +621,34 @@ class CategoryAdmin(CatalogManagementAccessMixin, MPTTModelAdmin):
     ordering = ('tree_id', 'lft')
     prepopulated_fields = {'slug': ('name_ru',)}
     readonly_fields = ('created_at', 'updated_at')
+    change_list_template = 'admin/catalog/category/change_list.html'
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                'sync-tree/',
+                self.admin_site.admin_view(self.sync_tree_view),
+                name='catalog_category_sync_tree',
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    def sync_tree_view(self, request):
+        """Rebuild the MPTT tree (lft/rght/tree_id/level) from the `parent` links.
+
+        Fixes cases where subcategory products are missing when filtering by a
+        parent category because the tree bookkeeping got out of sync.
+        """
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+
+        Category.objects.rebuild()
+        self.message_user(
+            request,
+            'Дерево категорий синхронизировано.',
+            level=messages.SUCCESS,
+        )
+        return redirect('admin:catalog_category_changelist')
 
 @admin.register(Brand)
 class BrandAdmin(CatalogManagementAccessMixin, admin.ModelAdmin):
