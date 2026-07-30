@@ -28,8 +28,6 @@ THIRD_PARTY_APPS = [
     'parler',
     'phonenumber_field',
     'storages',
-    'django_celery_beat',
-    'django_celery_results',
 ]
 
 LOCAL_APPS = [
@@ -252,10 +250,6 @@ CELERY_BEAT_SCHEDULE = {
     'recommendations-reconcile': {
         'task': 'recommendations.reconcile_recommendation_aggregates',
         'schedule': timedelta(hours=config('RECOMMENDATION_RECONCILE_HOURS', default=24, cast=int)),
-    },
-    'orders-cancel-expired': {
-        'task': 'orders.cancel_expired_orders',
-        'schedule': timedelta(minutes=ORDER_EXPIRY_CHECK_MINUTES),
     },
 }
 
