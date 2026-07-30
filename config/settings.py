@@ -28,6 +28,8 @@ THIRD_PARTY_APPS = [
     'parler',
     'phonenumber_field',
     'storages',
+    'django_celery_beat',
+    'django_celery_results',
 ]
 
 LOCAL_APPS = [
@@ -104,6 +106,9 @@ CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=REDIS_URL)
 CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=REDIS_URL)
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+CELERY_ENABLE_UTC = True
 
 # --- Orders / payment timeout ---
 # Через сколько минут неоплаченный заказ автоматически отменяется.
