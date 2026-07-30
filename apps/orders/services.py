@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 import uuid
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import F, Q
@@ -783,8 +784,29 @@ class CheckoutService:
 
             EmailNotificationService.schedule_order_created_email(order)
             transaction.on_commit(lambda: NotificationService.notify_new_order(order))
+            cls._schedule_auto_cancel(order)
 
             return order
+
+    @staticmethod
+    def _schedule_auto_cancel(order):
+        """Запланировать авто-отмену заказа, если он не будет оплачен вовремя.
+
+        Ставит отложенную Celery-задачу с задержкой
+        ``ORDER_PAYMENT_TIMEOUT_MINUTES``. Задача создаётся только после
+        успешного коммита транзакции, чтобы не отменять несуществующий заказ.
+        """
+        timeout_minutes = getattr(settings, 'ORDER_PAYMENT_TIMEOUT_MINUTES', 30)
+        if timeout_minutes <= 0:
+            return
+
+        from .tasks import cancel_unpaid_order
+
+        order_id = order.id
+        countdown = timeout_minutes * 60
+        transaction.on_commit(
+            lambda: cancel_unpaid_order.apply_async(args=[order_id], countdown=countdown)
+        )
 
     @staticmethod
     def get_effective_price(variant):

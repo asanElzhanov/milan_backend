@@ -8,7 +8,7 @@ from apps.accounts.models import User
 from apps.catalog.models import Brand, Category, Product, ProductVariant
 from apps.orders.models import Cart, CartItem, Order
 from apps.orders.services import CheckoutService, OrderStatusService
-from apps.orders.tasks import cancel_expired_orders
+from apps.orders.tasks import cancel_expired_orders, cancel_unpaid_order
 
 
 @override_settings(ORDER_PAYMENT_TIMEOUT_MINUTES=30)
@@ -95,3 +95,32 @@ class CancelExpiredOrdersTaskTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.NEW)
         self.assertEqual(result['status'], 'disabled')
+
+    def test_scheduled_task_cancels_unpaid_order(self):
+        order = self.create_order(quantity=2)
+        self.variant.refresh_from_db()
+        self.assertEqual(self.variant.stock_quantity, 8)
+
+        result = cancel_unpaid_order(order.id)
+
+        order.refresh_from_db()
+        self.variant.refresh_from_db()
+        self.assertEqual(result['status'], 'cancelled')
+        self.assertEqual(order.status, Order.Status.CANCELLED)
+        self.assertEqual(order.payment_status, Order.PaymentStatus.EXPIRED)
+        self.assertEqual(self.variant.stock_quantity, 10)
+
+    def test_scheduled_task_skips_paid_order(self):
+        order = self.create_order()
+        OrderStatusService.mark_paid(order)
+
+        result = cancel_unpaid_order(order.id)
+
+        order.refresh_from_db()
+        self.assertEqual(result['status'], 'skipped')
+        self.assertEqual(order.status, Order.Status.PAID)
+        self.assertEqual(order.payment_status, Order.PaymentStatus.PAID)
+
+    def test_scheduled_task_handles_missing_order(self):
+        result = cancel_unpaid_order(999999)
+        self.assertEqual(result['status'], 'not_found')
