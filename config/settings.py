@@ -253,6 +253,15 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
+# Периодический «подметальщик» просроченных заказов — безопасная сеть на случай,
+# если отложенная ETA-задача была потеряна (перезапуск брокера и т.п.).
+# Регистрируется только когда авто-отмена включена и задан интервал проверки.
+if ORDER_PAYMENT_TIMEOUT_MINUTES > 0 and ORDER_EXPIRY_CHECK_MINUTES > 0:
+    CELERY_BEAT_SCHEDULE['orders-cancel-expired'] = {
+        'task': 'orders.cancel_expired_orders',
+        'schedule': timedelta(minutes=ORDER_EXPIRY_CHECK_MINUTES),
+    }
+
 # --- Spectacular (Swagger) ---
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Fashion Shop API',
