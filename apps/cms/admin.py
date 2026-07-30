@@ -1,6 +1,18 @@
 from django.contrib import admin
 
-from .models import StaticPage
+from .models import StaticPage, StaticPageBlock
+
+
+class StaticPageBlockInline(admin.StackedInline):
+    model = StaticPageBlock
+    extra = 1
+    fields = (
+        'sort_order', 'is_active',
+        'title_ru', 'content_ru',
+        'title_kz', 'content_kz',
+        'title_en', 'content_en',
+    )
+    ordering = ('sort_order', 'id')
 
 
 @admin.register(StaticPage)
@@ -12,6 +24,7 @@ class StaticPageAdmin(admin.ModelAdmin):
     list_editable = ('is_active',)
     ordering = ('title_ru',)
     readonly_fields = ('created_at', 'updated_at')
+    inlines = (StaticPageBlockInline,)
     fieldsets = (
         ('Контент', {
             'fields': (
@@ -29,3 +42,16 @@ class StaticPageAdmin(admin.ModelAdmin):
             'fields': ('created_at', 'updated_at'),
         }),
     )
+
+
+@admin.register(StaticPageBlock)
+class StaticPageBlockAdmin(admin.ModelAdmin):
+    list_display = ('title_ru', 'page', 'sort_order', 'is_active', 'updated_at')
+    list_filter = ('page', 'is_active')
+    search_fields = (
+        'title_ru', 'title_kz', 'title_en',
+        'content_ru', 'content_kz', 'content_en',
+    )
+    list_editable = ('sort_order', 'is_active')
+    ordering = ('page', 'sort_order', 'id')
+    autocomplete_fields = ('page',)

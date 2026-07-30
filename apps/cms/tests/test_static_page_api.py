@@ -1,13 +1,14 @@
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.cms.models import StaticPage
+from apps.cms.models import StaticPage, StaticPageBlock
 
 
 class StaticPageAPITests(APITestCase):
     list_url = '/api/v1/cms/pages/'
 
     def setUp(self):
+        StaticPage.objects.all().delete()
         self.page = StaticPage.objects.create(
             title_ru='Privacy Policy',
             slug='privacy-policy',
@@ -61,3 +62,35 @@ class StaticPageAPITests(APITestCase):
         items = self.response_items(response)
         self.assertEqual([item['slug'] for item in items], ['privacy-policy'])
         self.assertEqual(set(items[0].keys()), {'id', 'slug', 'title_ru', 'title_kz', 'title_en'})
+
+    def test_detail_returns_only_active_blocks_in_sort_order_with_translations(self):
+        later = StaticPageBlock.objects.create(
+            page=self.page,
+            title_ru='Второй блок',
+            title_kz='Екінші блок',
+            title_en='Second block',
+            content_ru='Второй текст',
+            content_kz='Екінші мәтін',
+            content_en='Second text',
+            sort_order=20,
+        )
+        earlier = StaticPageBlock.objects.create(
+            page=self.page,
+            title_ru='Первый блок',
+            content_ru='Первый текст',
+            sort_order=10,
+        )
+        StaticPageBlock.objects.create(
+            page=self.page,
+            title_ru='Скрытый блок',
+            content_ru='Скрытый текст',
+            sort_order=1,
+            is_active=False,
+        )
+
+        response = self.client.get(self.detail_url(self.page))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([block['id'] for block in response.data['blocks']], [earlier.id, later.id])
+        self.assertEqual(response.data['blocks'][1]['title_kz'], 'Екінші блок')
+        self.assertEqual(response.data['blocks'][1]['content_en'], 'Second text')

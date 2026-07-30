@@ -1,7 +1,8 @@
+from django.db.models import Prefetch
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import generics, permissions
 
-from .models import StaticPage
+from .models import StaticPage, StaticPageBlock
 from .serializers import StaticPageDetailSerializer, StaticPageListSerializer
 
 
@@ -31,12 +32,18 @@ class StaticPageDetailView(generics.RetrieveAPIView):
     lookup_field = 'slug'
 
     def get_queryset(self):
+        active_blocks = StaticPageBlock.objects.active().only(
+            'id', 'page_id',
+            'title_ru', 'title_kz', 'title_en',
+            'content_ru', 'content_kz', 'content_en',
+            'sort_order',
+        ).order_by('sort_order', 'id')
         return StaticPage.objects.active().only(
             'id', 'slug',
             'title_ru', 'title_kz', 'title_en',
             'content_ru', 'content_kz', 'content_en',
             'seo_title', 'seo_description',
-        )
+        ).prefetch_related(Prefetch('blocks', queryset=active_blocks))
 
     @extend_schema(
         tags=['CMS / Pages'],

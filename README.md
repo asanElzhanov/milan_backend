@@ -53,6 +53,15 @@ shop_backend/
 | GET | `banners/?position=hero` | Баннеры |
 | POST | `promo/check/` | Проверить промокод |
 
+### CMS — `/api/v1/cms/`
+
+| Метод | URL | Описание |
+|-------|-----|----------|
+| GET | `pages/` | Список активных статических страниц |
+| GET | `pages/<slug>/` | Страница с переведёнными упорядоченными блоками |
+
+Подробный контракт для фронтенда: [docs/STATIC_PAGES_FRONTEND_GUIDE.md](docs/STATIC_PAGES_FRONTEND_GUIDE.md).
+
 **Параметры фильтрации** `GET /products/`:
 - `category`, `brand`, `color`, `size`
 - `price_min`, `price_max`
