@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 import uuid
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import F, Q
@@ -783,8 +784,29 @@ class CheckoutService:
 
             EmailNotificationService.schedule_order_created_email(order)
             transaction.on_commit(lambda: NotificationService.notify_new_order(order))
+            cls._schedule_auto_cancel(order)
 
             return order
+
+    @staticmethod
+    def _schedule_auto_cancel(order):
+        """Запланировать авто-отмену заказа, если он не будет оплачен вовремя.
+
+        Ставит отложенную Celery-задачу с задержкой
+        ``ORDER_PAYMENT_TIMEOUT_MINUTES``. Задача создаётся только после
+        успешного коммита транзакции, чтобы не отменять несуществующий заказ.
+        """
+        timeout_minutes = getattr(settings, 'ORDER_PAYMENT_TIMEOUT_MINUTES', 30)
+        if timeout_minutes <= 0:
+            return
+
+        from .tasks import cancel_unpaid_order
+
+        order_id = order.id
+        countdown = timeout_minutes * 60
+        transaction.on_commit(
+            lambda: cancel_unpaid_order.apply_async(args=[order_id], countdown=countdown)
+        )
 
     @staticmethod
     def get_effective_price(variant):
@@ -918,7 +940,12 @@ class OrderStatusService:
             return locked_order
 
     @classmethod
-    def cancel_order(cls, order, changed_by=None, comment=''):
+    def cancel_order(cls, order, changed_by=None, comment='', *, expired=False):
+        """Отменить заказ: вернуть товары на склад, сохранить историю.
+
+        ``expired=True`` помечает заказ и платёж статусом «Время оплаты истекло»
+        (авто-отмена по таймауту), иначе — «Отменён» (ручная отмена).
+        """
         with transaction.atomic():
             locked_order = cls._lock_order(order)
             old_status = locked_order.status
@@ -931,8 +958,11 @@ class OrderStatusService:
 
             cls._return_order_stock(locked_order, changed_by=changed_by)
             locked_order.status = Order.Status.CANCELLED
-            locked_order.payment_status = Order.PaymentStatus.CANCELLED
+            locked_order.payment_status = (
+                Order.PaymentStatus.EXPIRED if expired else Order.PaymentStatus.CANCELLED
+            )
             locked_order.save(update_fields=['status', 'payment_status', 'updated_at'])
+            cls._cancel_pending_payments(locked_order, expired=expired)
             history = cls._create_history(
                 order=locked_order,
                 old_status=old_status,
@@ -1029,6 +1059,21 @@ class OrderStatusService:
                 user=changed_by if changed_by and changed_by.is_authenticated else None,
                 comment=f'Отмена заказа #{order.order_number}',
             )
+
+    @staticmethod
+    def _cancel_pending_payments(order, *, expired=False):
+        """Пометить незавершённые платежи заказа отменёнными/просроченными.
+
+        Успешные (SUCCESS) и уже возвращённые платежи не трогаем — это зона
+        логики возврата средств.
+        """
+        from apps.payments.models import Payment
+
+        target_status = Payment.Status.EXPIRED if expired else Payment.Status.CANCELLED
+        order.payments.filter(status=Payment.Status.PENDING).update(
+            status=target_status,
+            updated_at=timezone.now(),
+        )
 
     @staticmethod
     def _record_recommendation_order_events(order, *, event_type, transition_id=None):

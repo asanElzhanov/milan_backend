@@ -104,6 +104,15 @@ CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=REDIS_URL)
 CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=REDIS_URL)
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+CELERY_ENABLE_UTC = True
+
+# --- Orders / payment timeout ---
+# Через сколько минут неоплаченный заказ автоматически отменяется.
+ORDER_PAYMENT_TIMEOUT_MINUTES = config('ORDER_PAYMENT_TIMEOUT_MINUTES', default=30, cast=int)
+# Как часто (в минутах) Celery-beat проверяет заказы на истечение времени оплаты.
+ORDER_EXPIRY_CHECK_MINUTES = config('ORDER_EXPIRY_CHECK_MINUTES', default=5, cast=int)
 
 # --- Auth ---
 AUTH_USER_MODEL = 'accounts.User'
@@ -243,6 +252,15 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': timedelta(hours=config('RECOMMENDATION_RECONCILE_HOURS', default=24, cast=int)),
     },
 }
+
+# Периодический «подметальщик» просроченных заказов — безопасная сеть на случай,
+# если отложенная ETA-задача была потеряна (перезапуск брокера и т.п.).
+# Регистрируется только когда авто-отмена включена и задан интервал проверки.
+if ORDER_PAYMENT_TIMEOUT_MINUTES > 0 and ORDER_EXPIRY_CHECK_MINUTES > 0:
+    CELERY_BEAT_SCHEDULE['orders-cancel-expired'] = {
+        'task': 'orders.cancel_expired_orders',
+        'schedule': timedelta(minutes=ORDER_EXPIRY_CHECK_MINUTES),
+    }
 
 # --- Spectacular (Swagger) ---
 SPECTACULAR_SETTINGS = {

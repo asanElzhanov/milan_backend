@@ -128,7 +128,16 @@ class CategoryTreeView(CategoryQuerysetMixin, generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        return super().get_queryset().filter(level=0).prefetch_related('children')
+        # Корневые категории сортируем по заданному порядку (sort_order), а не по
+        # порядку создания (tree_id). Дочерние категории упорядочиваются
+        # Meta.ordering модели (sort_order, name_ru) при обходе в сериализаторе.
+        return (
+            super()
+            .get_queryset()
+            .filter(level=0)
+            .order_by('sort_order', 'name_ru')
+            .prefetch_related('children')
+        )
 
     def get_serializer_context(self):
         context = super().get_serializer_context()

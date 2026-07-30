@@ -11,6 +11,8 @@ class Payment(models.Model):
         SUCCESS = 'success', _('Успешно')
         FAILED = 'failed', _('Ошибка')
         REFUNDED = 'refunded', _('Возврат')
+        CANCELLED = 'cancelled', _('Отменён')
+        EXPIRED = 'expired', _('Время оплаты истекло')
 
     class Provider(models.TextChoices):
         FREEDOM = 'freedom', 'Freedom Pay'
