@@ -2,8 +2,12 @@ from django.db.models import Prefetch
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import generics, permissions
 
-from .models import StaticPage, StaticPageBlock
-from .serializers import StaticPageDetailSerializer, StaticPageListSerializer
+from .models import InfoDoc, StaticPage, StaticPageBlock
+from .serializers import (
+    InfoDocSerializer,
+    StaticPageDetailSerializer,
+    StaticPageListSerializer,
+)
 
 
 class StaticPageListView(generics.ListAPIView):
@@ -20,6 +24,26 @@ class StaticPageListView(generics.ListAPIView):
         tags=['CMS / Pages'],
         summary='Список активных статических страниц',
         responses={200: StaticPageListSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+class InfoDocListView(generics.ListAPIView):
+    """GET /cms/info-docs/"""
+    serializer_class = InfoDocSerializer
+    permission_classes = [permissions.AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        return InfoDoc.objects.active().only(
+            'id', 'title_ru', 'title_kz', 'title_en', 'file', 'sort_order',
+        ).order_by('sort_order', 'id')
+
+    @extend_schema(
+        tags=['CMS / Pages'],
+        summary='Список информационных документов',
+        responses={200: InfoDocSerializer(many=True)},
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
