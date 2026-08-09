@@ -444,7 +444,7 @@ class OrderDetailView(generics.RetrieveAPIView):
         return (
             Order.objects.filter(user=self.request.user)
             .select_related('user', 'delivery_method_ref', 'promo_code')
-            .prefetch_related('items', 'status_history')
+            .prefetch_related('items__variant__product__images', 'status_history')
         )
 
     @extend_schema(

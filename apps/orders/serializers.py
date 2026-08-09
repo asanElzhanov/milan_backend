@@ -147,13 +147,26 @@ class CartPromoCodeApplySerializer(serializers.Serializer):
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
+    image = serializers.SerializerMethodField()
+
     class Meta:
         model = OrderItem
         fields = (
             'id', 'product_name', 'product_slug', 'sku',
             'size_name', 'color_name', 'unit_price',
-            'quantity', 'total_price',
+            'quantity', 'total_price', 'image',
         )
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_image(self, obj):
+        images = list(obj.variant.product.images.all())
+        image = next((item for item in images if item.is_main), None)
+        if image is None and images:
+            image = images[0]
+        if not image:
+            return None
+        request = self.context.get('request')
+        return request.build_absolute_uri(image.image.url) if request else image.image.url
 
 
 class OrderStatusHistorySerializer(serializers.ModelSerializer):
