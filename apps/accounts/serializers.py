@@ -1,7 +1,14 @@
+from datetime import timedelta
+
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.conf import settings
 from django.contrib.auth import authenticate
+from django.contrib.auth.tokens import default_token_generator
+from django.utils import timezone
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 from .models import User, Address, Wishlist, OTPCode
 
 
@@ -46,14 +53,23 @@ class LoginSerializer(serializers.Serializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     full_name = serializers.ReadOnlyField()
     is_verified = serializers.ReadOnlyField()
+    password_change_interval_days = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = (
             'id', 'email', 'phone', 'first_name', 'last_name',
             'full_name', 'avatar', 'role', 'is_verified', 'date_joined',
+            'password_changed_at', 'password_change_interval_days',
         )
-        read_only_fields = ('id', 'email', 'full_name', 'role', 'is_verified', 'date_joined')
+        read_only_fields = (
+            'id', 'email', 'full_name', 'role', 'is_verified', 'date_joined',
+            'password_changed_at', 'password_change_interval_days',
+        )
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_password_change_interval_days(self, obj):
+        return settings.PASSWORD_CHANGE_MIN_INTERVAL_DAYS
 
 
 UserSerializer = UserProfileSerializer
@@ -63,6 +79,7 @@ UserUpdateSerializer = UserProfileSerializer
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(write_only=True)
     new_password = serializers.CharField(write_only=True, min_length=8)
+    new_password2 = serializers.CharField(write_only=True)
 
     def validate_old_password(self, value):
         user = self.context['request'].user
@@ -70,10 +87,71 @@ class ChangePasswordSerializer(serializers.Serializer):
             raise serializers.ValidationError('Старый пароль неверен')
         return value
 
+    def validate(self, data):
+        if data['new_password'] != data.get('new_password2'):
+            raise serializers.ValidationError({'new_password2': 'Пароли не совпадают'})
+
+        user = self.context['request'].user
+        interval_days = settings.PASSWORD_CHANGE_MIN_INTERVAL_DAYS
+        if interval_days > 0 and user.password_changed_at:
+            allowed_at = user.password_changed_at + timedelta(days=interval_days)
+            if timezone.now() < allowed_at:
+                raise serializers.ValidationError({
+                    'detail': (
+                        f'Пароль можно менять раз в {interval_days} дн. '
+                        f'Следующая смена будет доступна {timezone.localtime(allowed_at):%d.%m.%Y %H:%M}.'
+                    )
+                })
+        return data
+
     def save(self):
         user = self.context['request'].user
         user.set_password(self.validated_data['new_password'])
         user.save()
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    identifier = serializers.CharField()
+    locale = serializers.CharField(required=False, allow_blank=True, default='ru')
+
+    def get_user(self):
+        identifier = self.validated_data['identifier'].strip()
+        if '@' in identifier:
+            return User.objects.filter(email__iexact=identifier, is_active=True).first()
+        return User.objects.filter(phone=identifier, is_active=True).first()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    new_password2 = serializers.CharField(write_only=True)
+
+    default_error_messages = {
+        'invalid_link': 'Ссылка недействительна или устарела.',
+    }
+
+    def validate(self, data):
+        if data['new_password'] != data.get('new_password2'):
+            raise serializers.ValidationError({'new_password2': 'Пароли не совпадают'})
+
+        try:
+            user_id = force_str(urlsafe_base64_decode(data['uid']))
+            user = User.objects.get(pk=user_id, is_active=True)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            raise serializers.ValidationError({'detail': self.error_messages['invalid_link']})
+
+        if not default_token_generator.check_token(user, data['token']):
+            raise serializers.ValidationError({'detail': self.error_messages['invalid_link']})
+
+        data['user'] = user
+        return data
+
+    def save(self):
+        user = self.validated_data['user']
+        user.set_password(self.validated_data['new_password'])
+        user.save()
+        return user
 
 
 class AddressSerializer(serializers.ModelSerializer):

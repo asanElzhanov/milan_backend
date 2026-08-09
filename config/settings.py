@@ -131,6 +131,15 @@ OTP_CODE_TTL_MINUTES = config('OTP_CODE_TTL_MINUTES', default=10, cast=int)
 OTP_RESEND_COOLDOWN_SECONDS = config('OTP_RESEND_COOLDOWN_SECONDS', default=60, cast=int)
 OTP_MAX_ATTEMPTS_PER_HOUR = config('OTP_MAX_ATTEMPTS_PER_HOUR', default=5, cast=int)
 
+# --- Password management ---
+# Минимальный интервал между сменами пароля пользователем в личном кабинете (в днях).
+# 0 — ограничение отключено. Не применяется к сбросу по ссылке и сбросу из админки.
+PASSWORD_CHANGE_MIN_INTERVAL_DAYS = config('PASSWORD_CHANGE_MIN_INTERVAL_DAYS', default=0, cast=int)
+# Срок жизни ссылки восстановления пароля (в часах).
+PASSWORD_RESET_LINK_TTL_HOURS = config('PASSWORD_RESET_LINK_TTL_HOURS', default=1, cast=int)
+# Django использует PASSWORD_RESET_TIMEOUT (в секундах) для проверки токена ссылки.
+PASSWORD_RESET_TIMEOUT = PASSWORD_RESET_LINK_TTL_HOURS * 3600
+
 # --- DRF ---
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
