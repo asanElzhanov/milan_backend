@@ -221,8 +221,18 @@ class PasswordResetRequestView(APIView):
             )
             try:
                 send_password_reset_email.delay(user.id, reset_url)
+                logger.info(
+                    'Password reset email enqueued for user_id=%s email=%s '
+                    '(a Celery worker must process the "notifications.send_password_reset_email" task)',
+                    user.id,
+                    user.email,
+                )
             except Exception:
                 logger.exception('Failed to enqueue password reset email for user_id=%s', user.id)
+        elif user is None:
+            logger.info('Password reset requested but no matching account was found for the request')
+        else:
+            logger.info('Password reset requested for user_id=%s but the account has no email', user.id)
 
         return Response({'detail': self._generic_detail})
 
@@ -416,6 +426,12 @@ class OTPRequestView(APIView):
         otp = create_otp_code(request.user, purpose)
         try:
             send_otp_task.delay(request.user.id, otp.code, purpose)
+            logger.info(
+                'OTP delivery enqueued for user_id=%s purpose=%s '
+                '(a Celery worker must process the "notifications.send_otp" task)',
+                request.user.id,
+                purpose,
+            )
         except Exception:
             logger.exception('Failed to enqueue OTP delivery for user_id=%s', request.user.id)
 

@@ -1,12 +1,11 @@
 from django.contrib.auth import get_user_model
-from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Q
 
 from apps.accounts.models import User
 
+from .email import send_email_logged
 from .models import Notification
 
 
@@ -283,12 +282,11 @@ class EmailNotificationService:
     def _send_customer_email(recipient_email, subject, message):
         if not recipient_email:
             return 0
-        return send_mail(
+        return send_email_logged(
             subject=subject,
             message=message,
-            from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[recipient_email],
-            fail_silently=False,
+            context='customer notification',
         )
 
     @staticmethod

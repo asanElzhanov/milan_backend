@@ -121,6 +121,12 @@ class UserAdmin(BaseUserAdmin):
 
             try:
                 send_admin_password_reset_email.delay(user.pk, new_password)
+                logger.info(
+                    'Admin password reset email enqueued for user_id=%s email=%s '
+                    '(a Celery worker must process the "notifications.send_admin_password_reset_email" task)',
+                    user.pk,
+                    user.email,
+                )
             except Exception:
                 logger.exception('Failed to enqueue admin password reset email for user_id=%s', user.pk)
                 self.message_user(

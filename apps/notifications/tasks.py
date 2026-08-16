@@ -3,8 +3,8 @@ import logging
 from celery import shared_task
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.mail import send_mail
 
+from .email import send_email_logged
 from .services import EmailNotificationService
 
 
@@ -208,7 +208,7 @@ def send_otp_task(self, user_id, code, purpose):
         if purpose == 'phone_verify':
             purpose_note = '\nThis code was requested for phone verification.'
 
-        send_mail(
+        send_email_logged(
             subject='Your verification code',
             message=(
                 f'Your verification code is: {code}\n\n'
@@ -216,9 +216,8 @@ def send_otp_task(self, user_id, code, purpose):
                 f'{purpose_note}\n'
                 'If you did not request this code, please ignore this email.'
             ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[user.email],
-            fail_silently=False,
+            context=f'OTP purpose={purpose} user_id={user_id}',
         )
     except user_model.DoesNotExist:
         logger.warning('Cannot send OTP: user_id=%s does not exist', user_id)
@@ -238,7 +237,7 @@ def send_password_reset_email(self, user_id, reset_url):
             return
 
         ttl_hours = settings.PASSWORD_RESET_LINK_TTL_HOURS
-        send_mail(
+        send_email_logged(
             subject='Восстановление пароля',
             message=(
                 f'Здравствуйте, {user.full_name or user.email}.\n\n'
@@ -248,9 +247,8 @@ def send_password_reset_email(self, user_id, reset_url):
                 f'Ссылка действительна {ttl_hours} ч.\n'
                 'Если вы не запрашивали восстановление пароля, просто проигнорируйте это письмо.'
             ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[user.email],
-            fail_silently=False,
+            context=f'password reset user_id={user_id}',
         )
     except user_model.DoesNotExist:
         logger.warning('Cannot send password reset email: user_id=%s does not exist', user_id)
@@ -269,7 +267,7 @@ def send_admin_password_reset_email(self, user_id, new_password):
             logger.warning('Cannot send admin password reset email: user_id=%s has no email', user_id)
             return
 
-        send_mail(
+        send_email_logged(
             subject='Ваш пароль был сброшен',
             message=(
                 f'Здравствуйте, {user.full_name or user.email}.\n\n'
@@ -277,9 +275,8 @@ def send_admin_password_reset_email(self, user_id, new_password):
                 f'Ваш новый пароль: {new_password}\n\n'
                 'Рекомендуем войти и сменить пароль в личном кабинете.'
             ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[user.email],
-            fail_silently=False,
+            context=f'admin password reset user_id={user_id}',
         )
     except user_model.DoesNotExist:
         logger.warning('Cannot send admin password reset email: user_id=%s does not exist', user_id)
