@@ -91,6 +91,7 @@ class Product(models.Model):
     class Season(models.TextChoices):
         SPRING_SUMMER = 'ss', _('Весна/Лето')
         AUTUMN_WINTER = 'aw', _('Осень/Зима')
+        AUTUMN_SPRING = 'as', _('Осень/Весна')
         ALL_SEASON = 'all', _('Всесезонный')
 
     sku = models.CharField(_('артикул'), max_length=100, unique=True)
