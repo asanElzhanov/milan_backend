@@ -2,6 +2,8 @@ from pathlib import Path
 from decouple import config
 from datetime import timedelta
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY', default='change-me-in-production')
@@ -386,10 +388,20 @@ LOGGING = {
 EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
 EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
-EMAIL_USE_TLS = True
+# Port 465 = implicit SSL (SMTPS); port 587 = STARTTLS. They are mutually
+# exclusive in Django, so default them from the port and let env override.
+EMAIL_USE_SSL = config('EMAIL_USE_SSL', default=EMAIL_PORT == 465, cast=bool)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=not EMAIL_USE_SSL, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+EMAIL_TIMEOUT = config('EMAIL_TIMEOUT', default=15, cast=int)
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@fashionshop.kz')
+
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured(
+        'EMAIL_USE_TLS and EMAIL_USE_SSL are mutually exclusive: use TLS for '
+        'port 587 or SSL for port 465, not both.'
+    )
 
 # --- Payments (FreedomPay) ---
 FREEDOMPAY_MERCHANT_ID = config('FREEDOMPAY_MERCHANT_ID', default='')

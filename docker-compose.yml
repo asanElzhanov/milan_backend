@@ -12,6 +12,13 @@ x-app-environment: &app-environment
   ORDER_PAYMENT_TIMEOUT_MINUTES: ${ORDER_PAYMENT_TIMEOUT_MINUTES:-30}
   ORDER_EXPIRY_CHECK_MINUTES: ${ORDER_EXPIRY_CHECK_MINUTES:-5}
   EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
+  EMAIL_HOST: ${EMAIL_HOST:-smtp.gmail.com}
+  EMAIL_PORT: ${EMAIL_PORT:-587}
+  # EMAIL_USE_SSL / EMAIL_USE_TLS are derived from EMAIL_PORT in settings.py
+  # (465 -> SSL, otherwise TLS). Add them here only if you need to override.
+  EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+  EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+  DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-noreply@fashionshop.kz}
   USE_S3: ${USE_S3:-True}
   AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
   AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}

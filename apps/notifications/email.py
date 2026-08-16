@@ -31,13 +31,14 @@ def send_email_logged(*, subject, message, recipient_list, context='email'):
         return 0
 
     logger.info(
-        'Sending email (%s): to=%s subject=%r via backend=%s host=%s:%s tls=%s from=%s smtp_user=%s',
+        'Sending email (%s): to=%s subject=%r via backend=%s host=%s:%s ssl=%s tls=%s from=%s smtp_user=%s',
         context,
         recipients,
         subject,
         settings.EMAIL_BACKEND,
         settings.EMAIL_HOST,
         settings.EMAIL_PORT,
+        getattr(settings, 'EMAIL_USE_SSL', False),
         settings.EMAIL_USE_TLS,
         settings.DEFAULT_FROM_EMAIL,
         settings.EMAIL_HOST_USER or '(empty)',
