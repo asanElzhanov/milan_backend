@@ -406,21 +406,25 @@ GET /api/v1/catalog/products/
   "results": [
     {
       "id": 1,
-      "name": "Nike Air",
+      "name_ru": "Nike Air",
+      "name_kz": "Nike Air",
+      "name_en": "Nike Air",
       "slug": "nike-air",
       "sku": "SKU-001",
       "category": {
         "id": 1,
-        "name": "Shoes",
+        "name_ru": "Обувь",
+        "name_kz": "Аяқ киім",
+        "name_en": "Shoes",
         "slug": "shoes"
       },
       "brand": {
         "id": 1,
-        "name": "Nike",
+        "name_ru": "Nike",
+        "name_kz": "Nike",
+        "name_en": "Nike",
         "slug": "nike"
       },
-      "brand_name": "Nike",
-      "category_name": "Shoes",
       "price": "100.00",
       "old_price": "120.00",
       "discount": 16,

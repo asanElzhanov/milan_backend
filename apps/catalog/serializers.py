@@ -469,8 +469,6 @@ class ProductListSerializer(serializers.ModelSerializer):
     main_media_type = serializers.SerializerMethodField()
     category = serializers.SerializerMethodField()
     brand = serializers.SerializerMethodField()
-    brand_name = serializers.CharField(source='brand.name_ru', read_only=True)
-    category_name = serializers.CharField(source='category.name_ru', read_only=True)
     discount_percent = serializers.ReadOnlyField()
     discount = serializers.ReadOnlyField()
     is_sale = serializers.ReadOnlyField()
@@ -485,7 +483,6 @@ class ProductListSerializer(serializers.ModelSerializer):
         model = Product
         fields = (
             'id', 'name_ru', 'name_kz', 'name_en', 'slug', 'sku', 'category', 'brand',
-            'brand_name', 'category_name',
             'price', 'old_price', 'discount', 'discount_percent',
             'is_new', 'is_sale', 'is_active',
             'main_image', 'main_media_type', 'min_price', 'in_stock',
