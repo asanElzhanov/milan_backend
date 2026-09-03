@@ -1,4 +1,7 @@
 from drf_spectacular.utils import OpenApiResponse, OpenApiTypes, extend_schema, inline_serializer
+from django.conf import settings
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -6,14 +9,20 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 import logging
 
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
+
 from .models import User, Address, Wishlist, OTPCode
 from .serializers import (
     RegisterSerializer, LoginSerializer, UserSerializer, UserUpdateSerializer,
     ChangePasswordSerializer, AddressSerializer, WishlistSerializer,
     OTPRequestSerializer, OTPVerifySerializer,
+    PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
 )
 from .services import check_otp_request_allowed, create_otp_code
-from apps.notifications.tasks import send_otp_task
+from apps.notifications.tasks import send_otp_task, send_password_reset_email
+from apps.catalog.models import Product
 
 
 logger = logging.getLogger(__name__)
@@ -184,6 +193,67 @@ class ChangePasswordView(APIView):
         return Response({'detail': 'Пароль изменён'})
 
 
+class PasswordResetRequestView(APIView):
+    """POST /auth/password-reset/request/ — send a reset link by email."""
+    permission_classes = [permissions.AllowAny]
+
+    # Neutral response that never reveals whether an account exists.
+    _generic_detail = 'Если аккаунт с такими данными существует, мы отправили ссылку для восстановления пароля.'
+
+    @extend_schema(
+        tags=['Auth'],
+        summary='Запросить восстановление пароля',
+        request=PasswordResetRequestSerializer,
+        responses={200: DetailResponseSerializer},
+    )
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.get_user()
+
+        if user is not None and user.email:
+            locale = (serializer.validated_data.get('locale') or 'ru').strip() or 'ru'
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            reset_url = (
+                f'{settings.FRONTEND_URL.rstrip("/")}/{locale}/reset-password'
+                f'?uid={uid}&token={token}'
+            )
+            try:
+                send_password_reset_email.delay(user.id, reset_url)
+                logger.info(
+                    'Password reset email enqueued for user_id=%s email=%s '
+                    '(a Celery worker must process the "notifications.send_password_reset_email" task)',
+                    user.id,
+                    user.email,
+                )
+            except Exception:
+                logger.exception('Failed to enqueue password reset email for user_id=%s', user.id)
+        elif user is None:
+            logger.info('Password reset requested but no matching account was found for the request')
+        else:
+            logger.info('Password reset requested for user_id=%s but the account has no email', user.id)
+
+        return Response({'detail': self._generic_detail})
+
+
+class PasswordResetConfirmView(APIView):
+    """POST /auth/password-reset/confirm/ — set a new password using a token."""
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        tags=['Auth'],
+        summary='Подтвердить восстановление пароля',
+        request=PasswordResetConfirmSerializer,
+        responses={200: DetailResponseSerializer, 400: OpenApiResponse(description='Ссылка недействительна')},
+    )
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({'detail': 'Пароль изменён'})
+
+
 class AddressListCreateView(generics.ListCreateAPIView):
     """GET/POST /auth/addresses/"""
     serializer_class = AddressSerializer
@@ -300,13 +370,36 @@ class WishlistToggleView(APIView):
         responses={200: StatusResponseSerializer, 201: StatusResponseSerializer},
     )
     def post(self, request, product_id):
-        item, created = Wishlist.objects.get_or_create(
-            user=request.user,
-            product_id=product_id,
-        )
-        if not created:
-            item.delete()
-            return Response({'status': 'removed'})
+        from apps.recommendations.constants import EventSource, EventType, RecommendationContext
+        from apps.recommendations.services import RecommendationEventService
+
+        product = get_object_or_404(Product.objects.filter(is_active=True), pk=product_id)
+        with transaction.atomic():
+            item = Wishlist.objects.select_for_update().filter(
+                user=request.user,
+                product=product,
+            ).first()
+            if item is not None:
+                item_id = item.id
+                RecommendationEventService.record_business_event(
+                    event_type=EventType.FAVORITE_REMOVE,
+                    source=EventSource.WISHLIST,
+                    user=request.user,
+                    product=product,
+                    context=RecommendationContext.HOME,
+                    deduplication_key=f'favorite_remove:{item_id}',
+                )
+                item.delete()
+                return Response({'status': 'removed'})
+            item = Wishlist.objects.create(user=request.user, product=product)
+            RecommendationEventService.record_business_event(
+                event_type=EventType.FAVORITE_ADD,
+                source=EventSource.WISHLIST,
+                user=request.user,
+                product=product,
+                context=RecommendationContext.HOME,
+                deduplication_key=f'favorite_add:{item.id}',
+            )
         return Response({'status': 'added'}, status=status.HTTP_201_CREATED)
 
 
@@ -333,6 +426,12 @@ class OTPRequestView(APIView):
         otp = create_otp_code(request.user, purpose)
         try:
             send_otp_task.delay(request.user.id, otp.code, purpose)
+            logger.info(
+                'OTP delivery enqueued for user_id=%s purpose=%s '
+                '(a Celery worker must process the "notifications.send_otp" task)',
+                request.user.id,
+                purpose,
+            )
         except Exception:
             logger.exception('Failed to enqueue OTP delivery for user_id=%s', request.user.id)
 

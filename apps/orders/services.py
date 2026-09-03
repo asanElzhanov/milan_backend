@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 import uuid
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import F, Q
@@ -176,7 +177,7 @@ class CartService:
         return cart
 
     @classmethod
-    def add_item(cls, cart, variant, quantity):
+    def add_item(cls, cart, variant, quantity, anonymous_id_hash=''):
         quantity = cls._validate_quantity(quantity)
         with transaction.atomic():
             cart = cls._lock_cart(cart)
@@ -188,6 +189,7 @@ class CartService:
                 .filter(cart=cart, variant=variant)
                 .first()
             )
+            old_quantity = 0 if item is None else item.quantity
             new_quantity = quantity if item is None else item.quantity + quantity
             cls._ensure_stock_available(variant, new_quantity)
 
@@ -196,10 +198,16 @@ class CartService:
             else:
                 item.quantity = new_quantity
                 item.save(update_fields=['quantity', 'updated_at'])
+            cls._record_cart_delta(
+                cart=cart,
+                item=item,
+                delta=new_quantity - old_quantity,
+                anonymous_id_hash=anonymous_id_hash,
+            )
             return item, cart
 
     @classmethod
-    def update_item(cls, cart, item_or_variant, quantity):
+    def update_item(cls, cart, item_or_variant, quantity, anonymous_id_hash=''):
         quantity = cls._validate_quantity(quantity)
         with transaction.atomic():
             cart = cls._lock_cart(cart)
@@ -208,12 +216,20 @@ class CartService:
             cls._ensure_variant_available(variant)
             cls._ensure_stock_available(variant, quantity)
 
-            item.quantity = quantity
-            item.save(update_fields=['quantity', 'updated_at'])
+            old_quantity = item.quantity
+            if old_quantity != quantity:
+                item.quantity = quantity
+                item.save(update_fields=['quantity', 'updated_at'])
+                cls._record_cart_delta(
+                    cart=cart,
+                    item=item,
+                    delta=quantity - old_quantity,
+                    anonymous_id_hash=anonymous_id_hash,
+                )
             return item, cart
 
     @classmethod
-    def update_item_by_id(cls, cart, item_id, quantity):
+    def update_item_by_id(cls, cart, item_id, quantity, anonymous_id_hash=''):
         quantity = cls._validate_quantity(quantity)
         with transaction.atomic():
             cart = cls._lock_cart(cart)
@@ -222,31 +238,64 @@ class CartService:
             cls._ensure_variant_available(variant)
             cls._ensure_stock_available(variant, quantity)
 
-            item.quantity = quantity
-            item.save(update_fields=['quantity', 'updated_at'])
+            old_quantity = item.quantity
+            if old_quantity != quantity:
+                item.quantity = quantity
+                item.save(update_fields=['quantity', 'updated_at'])
+                cls._record_cart_delta(
+                    cart=cart,
+                    item=item,
+                    delta=quantity - old_quantity,
+                    anonymous_id_hash=anonymous_id_hash,
+                )
             return item, cart
 
     @classmethod
-    def remove_item(cls, cart, item_or_variant):
+    def remove_item(cls, cart, item_or_variant, anonymous_id_hash=''):
         with transaction.atomic():
             cart = cls._lock_cart(cart)
             item = cls._lock_item(cart, item_or_variant)
+            cls._record_cart_delta(
+                cart=cart,
+                item=item,
+                delta=-item.quantity,
+                anonymous_id_hash=anonymous_id_hash,
+                operation='delete',
+            )
             item.delete()
             return cart
 
     @classmethod
-    def remove_item_by_id(cls, cart, item_id):
+    def remove_item_by_id(cls, cart, item_id, anonymous_id_hash=''):
         with transaction.atomic():
             cart = cls._lock_cart(cart)
             item = cls._lock_item_by_id(cart, item_id)
+            cls._record_cart_delta(
+                cart=cart,
+                item=item,
+                delta=-item.quantity,
+                anonymous_id_hash=anonymous_id_hash,
+                operation='delete',
+            )
             item.delete()
             return cart
 
     @classmethod
-    def clear_cart(cls, cart):
+    def clear_cart(cls, cart, anonymous_id_hash=''):
         with transaction.atomic():
             cart = cls._lock_cart(cart)
-            cart.items.select_for_update().delete()
+            items = list(
+                cart.items.select_for_update().select_related('variant__product').order_by('id')
+            )
+            for item in items:
+                cls._record_cart_delta(
+                    cart=cart,
+                    item=item,
+                    delta=-item.quantity,
+                    anonymous_id_hash=anonymous_id_hash,
+                    operation='clear',
+                )
+            cart.items.all().delete()
             cart.promo_code = None
             cart.save(update_fields=['promo_code', 'updated_at'])
             return cart
@@ -436,6 +485,29 @@ class CartService:
         if not StockService.check_availability(variant, quantity):
             raise NotEnoughStockError('Недостаточно товара на складе.')
 
+    @staticmethod
+    def _record_cart_delta(*, cart, item, delta, anonymous_id_hash='', operation='quantity'):
+        if not delta:
+            return
+        if not cart.user_id and not anonymous_id_hash:
+            return
+        from apps.recommendations.constants import EventSource, EventType, RecommendationContext
+        from apps.recommendations.services import RecommendationEventService
+
+        event_type = EventType.CART_ADD if delta > 0 else EventType.CART_REMOVE
+        timestamp = item.updated_at or item.created_at or timezone.now()
+        RecommendationEventService.record_business_event(
+            event_type=event_type,
+            source=EventSource.CART,
+            user=cart.user if cart.user_id else None,
+            anonymous_id_hash=anonymous_id_hash,
+            product=item.variant.product,
+            variant=item.variant,
+            context=RecommendationContext.CART,
+            value=delta,
+            deduplication_key=f'{event_type}:{item.id}:{operation}:{timestamp.isoformat()}',
+        )
+
 
 class PromoCodeService:
     money_quant = Decimal('0.01')
@@ -572,6 +644,7 @@ class CheckoutService:
         delivery_method,
         promo_code=None,
         comment='',
+        anonymous_id_hash='',
     ):
         checkout_data = {
             'customer_name': customer_name,
@@ -604,11 +677,11 @@ class CheckoutService:
                 items_subtotal += total_price
                 order_items_data.append({
                     'variant': variant,
-                    'product_name': variant.product.name,
+                    'product_name': variant.product.name_ru,
                     'product_slug': variant.product.slug,
                     'sku': variant.sku,
                     'size_name': variant.size.value if variant.size else '',
-                    'color_name': variant.color.name if variant.color else '',
+                    'color_name': variant.color.name_ru if variant.color else '',
                     'unit_price': unit_price,
                     'quantity': item.quantity,
                     'total_price': total_price,
@@ -646,7 +719,7 @@ class CheckoutService:
                 delivery_method=delivery_method.code,
                 delivery_method_ref=delivery_method,
                 delivery_method_code=delivery_method.code,
-                delivery_method_name=delivery_method.name,
+                delivery_method_name=delivery_method.name_ru,
                 items_total=items_subtotal,
                 delivery_price=delivery.delivery_price,
                 delivery_requires_manager_calculation=delivery.requires_manager_calculation,
@@ -662,14 +735,34 @@ class CheckoutService:
                 comment=checkout_data.get('comment') or '',
             )
 
+            created_order_items = []
             for item_data in order_items_data:
-                OrderItem.objects.create(order=order, **item_data)
+                order_item = OrderItem.objects.create(order=order, **item_data)
+                created_order_items.append(order_item)
                 cls._write_off_stock(
                     variant=item_data['variant'],
                     quantity=item_data['quantity'],
                     user=user,
                     order=order,
                 )
+
+            if order.user_id or anonymous_id_hash:
+                from apps.recommendations.constants import EventSource, EventType, RecommendationContext
+                from apps.recommendations.services import RecommendationEventService
+
+                for order_item in created_order_items:
+                    RecommendationEventService.record_business_event(
+                        event_type=EventType.ORDER_CREATED,
+                        source=EventSource.ORDER,
+                        user=order.user,
+                        anonymous_id_hash=anonymous_id_hash,
+                        product=order_item.variant.product,
+                        variant=order_item.variant,
+                        order_item=order_item,
+                        context=RecommendationContext.HOME,
+                        value=order_item.quantity,
+                        deduplication_key=f'order_created:{order_item.id}',
+                    )
 
             if promo_code_data is not None:
                 PromoCodeService.mark_as_used(
@@ -691,8 +784,29 @@ class CheckoutService:
 
             EmailNotificationService.schedule_order_created_email(order)
             transaction.on_commit(lambda: NotificationService.notify_new_order(order))
+            cls._schedule_auto_cancel(order)
 
             return order
+
+    @staticmethod
+    def _schedule_auto_cancel(order):
+        """Запланировать авто-отмену заказа, если он не будет оплачен вовремя.
+
+        Ставит отложенную Celery-задачу с задержкой
+        ``ORDER_PAYMENT_TIMEOUT_MINUTES``. Задача создаётся только после
+        успешного коммита транзакции, чтобы не отменять несуществующий заказ.
+        """
+        timeout_minutes = getattr(settings, 'ORDER_PAYMENT_TIMEOUT_MINUTES', 30)
+        if timeout_minutes <= 0:
+            return
+
+        from .tasks import cancel_unpaid_order
+
+        order_id = order.id
+        countdown = timeout_minutes * 60
+        transaction.on_commit(
+            lambda: cancel_unpaid_order.apply_async(args=[order_id], countdown=countdown)
+        )
 
     @staticmethod
     def get_effective_price(variant):
@@ -802,13 +916,20 @@ class OrderStatusService:
             cls._ensure_transition_allowed(old_status, new_status)
             locked_order.status = new_status
             locked_order.save(update_fields=['status', 'updated_at'])
-            cls._create_history(
+            history = cls._create_history(
                 order=locked_order,
                 old_status=old_status,
                 new_status=new_status,
                 changed_by=changed_by,
                 comment=comment,
             )
+            if new_status == Order.Status.RETURNED:
+                # Partial/item-level returns require a dedicated commerce model.
+                cls._record_recommendation_order_events(
+                    locked_order,
+                    event_type='return',
+                    transition_id=history.id,
+                )
             from apps.notifications.services import EmailNotificationService
 
             EmailNotificationService.schedule_order_status_changed_email(
@@ -819,7 +940,12 @@ class OrderStatusService:
             return locked_order
 
     @classmethod
-    def cancel_order(cls, order, changed_by=None, comment=''):
+    def cancel_order(cls, order, changed_by=None, comment='', *, expired=False):
+        """Отменить заказ: вернуть товары на склад, сохранить историю.
+
+        ``expired=True`` помечает заказ и платёж статусом «Время оплаты истекло»
+        (авто-отмена по таймауту), иначе — «Отменён» (ручная отмена).
+        """
         with transaction.atomic():
             locked_order = cls._lock_order(order)
             old_status = locked_order.status
@@ -832,14 +958,22 @@ class OrderStatusService:
 
             cls._return_order_stock(locked_order, changed_by=changed_by)
             locked_order.status = Order.Status.CANCELLED
-            locked_order.payment_status = Order.PaymentStatus.CANCELLED
+            locked_order.payment_status = (
+                Order.PaymentStatus.EXPIRED if expired else Order.PaymentStatus.CANCELLED
+            )
             locked_order.save(update_fields=['status', 'payment_status', 'updated_at'])
-            cls._create_history(
+            cls._cancel_pending_payments(locked_order, expired=expired)
+            history = cls._create_history(
                 order=locked_order,
                 old_status=old_status,
                 new_status=Order.Status.CANCELLED,
                 changed_by=changed_by,
                 comment=comment,
+            )
+            cls._record_recommendation_order_events(
+                locked_order,
+                event_type='order_cancel',
+                transition_id=history.id,
             )
             from apps.notifications.services import EmailNotificationService
 
@@ -878,6 +1012,10 @@ class OrderStatusService:
 
                 EmailNotificationService.schedule_order_paid_email(locked_order)
                 transaction.on_commit(lambda: NotificationService.notify_payment_success(locked_order))
+                cls._record_recommendation_order_events(
+                    locked_order,
+                    event_type='purchase',
+                )
             return locked_order
 
     @classmethod
@@ -920,4 +1058,52 @@ class OrderStatusService:
                 quantity=item.quantity,
                 user=changed_by if changed_by and changed_by.is_authenticated else None,
                 comment=f'Отмена заказа #{order.order_number}',
+            )
+
+    @staticmethod
+    def _cancel_pending_payments(order, *, expired=False):
+        """Пометить незавершённые платежи заказа отменёнными/просроченными.
+
+        Успешные (SUCCESS) и уже возвращённые платежи не трогаем — это зона
+        логики возврата средств.
+        """
+        from apps.payments.models import Payment
+
+        target_status = Payment.Status.EXPIRED if expired else Payment.Status.CANCELLED
+        order.payments.filter(status=Payment.Status.PENDING).update(
+            status=target_status,
+            updated_at=timezone.now(),
+        )
+
+    @staticmethod
+    def _record_recommendation_order_events(order, *, event_type, transition_id=None):
+        from apps.recommendations.constants import EventSource, RecommendationContext
+        from apps.recommendations.models import UserProductEvent
+        from apps.recommendations.services import RecommendationEventService
+
+        items = order.items.select_related('variant__product').all()
+        for item in items:
+            anonymous_hash = ''
+            if not order.user_id:
+                anonymous_hash = UserProductEvent.objects.filter(
+                    order_item=item,
+                    event_type='order_created',
+                ).values_list('anonymous_id_hash', flat=True).first() or ''
+            if not order.user_id and not anonymous_hash:
+                continue
+            if event_type == 'purchase':
+                deduplication_key = f'purchase:{item.id}'
+            else:
+                deduplication_key = f'{event_type}:{transition_id}:{item.id}'
+            RecommendationEventService.record_business_event(
+                event_type=event_type,
+                source=EventSource.ORDER,
+                user=order.user,
+                anonymous_id_hash=anonymous_hash,
+                product=item.variant.product,
+                variant=item.variant,
+                order_item=item,
+                context=RecommendationContext.HOME,
+                value=item.quantity,
+                deduplication_key=deduplication_key,
             )

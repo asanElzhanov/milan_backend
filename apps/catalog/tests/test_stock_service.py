@@ -9,11 +9,11 @@ from apps.catalog.services import InvalidStockQuantityError, NotEnoughStockError
 
 class StockServiceTests(TestCase):
     def setUp(self):
-        category = Category.objects.create(name='Shoes', slug='shoes')
-        brand = Brand.objects.create(name='Nike', slug='nike')
+        category = Category.objects.create(name_ru='Shoes', slug='shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='nike')
         product = Product.objects.create(
             sku='SKU-STOCK-SERVICE',
-            name='Stock Service Product',
+            name_ru='Stock Service Product',
             slug='stock-service-product',
             category=category,
             brand=brand,

@@ -2,6 +2,8 @@ from pathlib import Path
 from decouple import config
 from datetime import timedelta
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY', default='change-me-in-production')
@@ -37,6 +39,7 @@ LOCAL_APPS = [
     'apps.orders',
     'apps.payments',
     'apps.notifications',
+    'apps.recommendations',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -50,6 +53,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.recommendations.middleware.RecommendationAnonymousActorMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -86,19 +90,31 @@ DATABASES = {
 }
 
 # --- Cache / Redis ---
+REDIS_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
+CACHE_REDIS_URL = config('CACHE_REDIS_URL', default=REDIS_URL)
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/1'),
+        'LOCATION': CACHE_REDIS_URL,
+        'KEY_PREFIX': config('CACHE_KEY_PREFIX', default='shop'),
         'OPTIONS': {'CLIENT_CLASS': 'django_redis.client.DefaultClient'},
     }
 }
 
 # --- Celery ---
-CELERY_BROKER_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
-CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=REDIS_URL)
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=REDIS_URL)
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+CELERY_ENABLE_UTC = True
+
+# --- Orders / payment timeout ---
+# Через сколько минут неоплаченный заказ автоматически отменяется.
+ORDER_PAYMENT_TIMEOUT_MINUTES = config('ORDER_PAYMENT_TIMEOUT_MINUTES', default=30, cast=int)
+# Как часто (в минутах) Celery-beat проверяет заказы на истечение времени оплаты.
+ORDER_EXPIRY_CHECK_MINUTES = config('ORDER_EXPIRY_CHECK_MINUTES', default=5, cast=int)
 
 # --- Auth ---
 AUTH_USER_MODEL = 'accounts.User'
@@ -117,6 +133,15 @@ OTP_CODE_TTL_MINUTES = config('OTP_CODE_TTL_MINUTES', default=10, cast=int)
 OTP_RESEND_COOLDOWN_SECONDS = config('OTP_RESEND_COOLDOWN_SECONDS', default=60, cast=int)
 OTP_MAX_ATTEMPTS_PER_HOUR = config('OTP_MAX_ATTEMPTS_PER_HOUR', default=5, cast=int)
 
+# --- Password management ---
+# Минимальный интервал между сменами пароля пользователем в личном кабинете (в днях).
+# 0 — ограничение отключено. Не применяется к сбросу по ссылке и сбросу из админки.
+PASSWORD_CHANGE_MIN_INTERVAL_DAYS = config('PASSWORD_CHANGE_MIN_INTERVAL_DAYS', default=0, cast=int)
+# Срок жизни ссылки восстановления пароля (в часах).
+PASSWORD_RESET_LINK_TTL_HOURS = config('PASSWORD_RESET_LINK_TTL_HOURS', default=1, cast=int)
+# Django использует PASSWORD_RESET_TIMEOUT (в секундах) для проверки токена ссылки.
+PASSWORD_RESET_TIMEOUT = PASSWORD_RESET_LINK_TTL_HOURS * 3600
+
 # --- DRF ---
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -133,7 +158,120 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 24,
+    'DEFAULT_THROTTLE_RATES': {
+        'recommendation_events': config('RECOMMENDATION_EVENTS_RATE', default='60/min'),
+    },
 }
+
+# --- Review media ---
+REVIEW_MAX_MEDIA_FILES = config('REVIEW_MAX_MEDIA_FILES', default=5, cast=int)
+REVIEW_MAX_IMAGE_SIZE = config('REVIEW_MAX_IMAGE_SIZE_MB', default=10, cast=int) * 1024 * 1024
+REVIEW_MAX_VIDEO_SIZE = config('REVIEW_MAX_VIDEO_SIZE_MB', default=50, cast=int) * 1024 * 1024
+
+# --- Recommendations ---
+RECOMMENDATIONS_ENABLED = config('RECOMMENDATIONS_ENABLED', default=True, cast=bool)
+RECOMMENDATION_ALGORITHM_VERSION = config('RECOMMENDATION_ALGORITHM_VERSION', default='v1')
+RECOMMENDATION_EVENT_WEIGHTS = {
+    'view': 1.0,
+    'search': 0.0,
+    'search_click': 2.0,
+    'favorite_add': 4.0,
+    'favorite_remove': -4.0,
+    'cart_add': 5.0,
+    'cart_remove': -4.0,
+    'order_created': 2.0,
+    'purchase': 10.0,
+    'order_cancel': -10.0,
+    'return': -12.0,
+    'rating': 0.0,
+    'recommendation_impression': 0.0,
+    'recommendation_click': 2.0,
+    'recommendation_hide': -10.0,
+}
+RECOMMENDATION_RATING_WEIGHTS = {1: -8.0, 2: -4.0, 3: 0.0, 4: 4.0, 5: 8.0}
+RECOMMENDATION_EVENT_HALF_LIFE_DAYS = {
+    'view': 7,
+    'search': 7,
+    'search_click': 14,
+    'favorite_add': 90,
+    'favorite_remove': 90,
+    'cart_add': 30,
+    'cart_remove': 30,
+    'order_created': 30,
+    'purchase': 180,
+    'order_cancel': 180,
+    'return': 365,
+    'rating': 365,
+    'recommendation_impression': 14,
+    'recommendation_click': 14,
+    'recommendation_hide': 180,
+}
+RECOMMENDATION_MAX_CANDIDATES = config('RECOMMENDATION_MAX_CANDIDATES', default=300, cast=int)
+RECOMMENDATION_SEED_PRODUCTS = config('RECOMMENDATION_SEED_PRODUCTS', default=30, cast=int)
+RECOMMENDATION_MAX_PER_CATEGORY = config('RECOMMENDATION_MAX_PER_CATEGORY', default=4, cast=int)
+RECOMMENDATION_MAX_RESULTS = config('RECOMMENDATION_MAX_RESULTS', default=100, cast=int)
+RECOMMENDATION_RELATIONS_PER_PRODUCT = config('RECOMMENDATION_RELATIONS_PER_PRODUCT', default=100, cast=int)
+RECOMMENDATION_CO_PURCHASE_MIN_SUPPORT = config('RECOMMENDATION_CO_PURCHASE_MIN_SUPPORT', default=2, cast=int)
+RECOMMENDATION_RECENT_PURCHASE_DAYS = config('RECOMMENDATION_RECENT_PURCHASE_DAYS', default=30, cast=int)
+RECOMMENDATION_EVENT_BATCH_LIMIT = config('RECOMMENDATION_EVENT_BATCH_LIMIT', default=20, cast=int)
+RECOMMENDATION_VIEW_DEDUP_MINUTES = config('RECOMMENDATION_VIEW_DEDUP_MINUTES', default=30, cast=int)
+RECOMMENDATION_MAX_VIEWS_PER_DAY = config('RECOMMENDATION_MAX_VIEWS_PER_DAY', default=3, cast=int)
+RECOMMENDATION_EVENT_RETENTION_DAYS = config('RECOMMENDATION_EVENT_RETENTION_DAYS', default=395, cast=int)
+RECOMMENDATION_SEARCH_RETENTION_DAYS = config('RECOMMENDATION_SEARCH_RETENTION_DAYS', default=60, cast=int)
+RECOMMENDATION_GENERATION_RETENTION_DAYS = config('RECOMMENDATION_GENERATION_RETENTION_DAYS', default=30, cast=int)
+RECOMMENDATION_MAX_GENERATIONS = config('RECOMMENDATION_MAX_GENERATIONS', default=5, cast=int)
+RECOMMENDATION_GENERATION_EXPIRY_HOURS = config('RECOMMENDATION_GENERATION_EXPIRY_HOURS', default=24, cast=int)
+RECOMMENDATION_SEARCH_QUERY_ENABLED = config('RECOMMENDATION_SEARCH_QUERY_ENABLED', default=False, cast=bool)
+RECOMMENDATION_TASK_BATCH_SIZE = config('RECOMMENDATION_TASK_BATCH_SIZE', default=500, cast=int)
+RECOMMENDATION_ANONYMOUS_COOKIE_NAME = config('RECOMMENDATION_ANONYMOUS_COOKIE_NAME', default='reco_actor')
+RECOMMENDATION_ANONYMOUS_COOKIE_AGE = config('RECOMMENDATION_ANONYMOUS_COOKIE_AGE', default=31536000, cast=int)
+RECOMMENDATION_CACHE_TTLS = {
+    'personal': config('RECOMMENDATION_CACHE_PERSONAL_TTL', default=1800, cast=int),
+    'popular': config('RECOMMENDATION_CACHE_POPULAR_TTL', default=900, cast=int),
+    'similar': config('RECOMMENDATION_CACHE_SIMILAR_TTL', default=14400, cast=int),
+    'bought_together': config('RECOMMENDATION_CACHE_BOUGHT_TTL', default=43200, cast=int),
+    'cart': config('RECOMMENDATION_CACHE_CART_TTL', default=300, cast=int),
+}
+
+CELERY_BEAT_SCHEDULE = {
+    'recommendations-popularity': {
+        'task': 'recommendations.aggregate_product_popularity',
+        'schedule': timedelta(minutes=config('RECOMMENDATION_POPULARITY_MINUTES', default=30, cast=int)),
+    },
+    'recommendations-preferences': {
+        'task': 'recommendations.rebuild_user_category_preferences',
+        'schedule': timedelta(hours=config('RECOMMENDATION_PREFERENCES_HOURS', default=1, cast=int)),
+    },
+    'recommendations-content-relations': {
+        'task': 'recommendations.rebuild_content_relations',
+        'schedule': timedelta(hours=config('RECOMMENDATION_CONTENT_HOURS', default=24, cast=int)),
+    },
+    'recommendations-co-purchase': {
+        'task': 'recommendations.rebuild_co_purchase_relations',
+        'schedule': timedelta(hours=config('RECOMMENDATION_CO_PURCHASE_HOURS', default=24, cast=int)),
+    },
+    'recommendations-personal': {
+        'task': 'recommendations.generate_user_recommendations',
+        'schedule': timedelta(hours=config('RECOMMENDATION_GENERATION_HOURS', default=6, cast=int)),
+    },
+    'recommendations-cleanup': {
+        'task': 'recommendations.cleanup_recommendation_data',
+        'schedule': timedelta(hours=config('RECOMMENDATION_CLEANUP_HOURS', default=24, cast=int)),
+    },
+    'recommendations-reconcile': {
+        'task': 'recommendations.reconcile_recommendation_aggregates',
+        'schedule': timedelta(hours=config('RECOMMENDATION_RECONCILE_HOURS', default=24, cast=int)),
+    },
+}
+
+# Периодический «подметальщик» просроченных заказов — безопасная сеть на случай,
+# если отложенная ETA-задача была потеряна (перезапуск брокера и т.п.).
+# Регистрируется только когда авто-отмена включена и задан интервал проверки.
+if ORDER_PAYMENT_TIMEOUT_MINUTES > 0 and ORDER_EXPIRY_CHECK_MINUTES > 0:
+    CELERY_BEAT_SCHEDULE['orders-cancel-expired'] = {
+        'task': 'orders.cancel_expired_orders',
+        'schedule': timedelta(minutes=ORDER_EXPIRY_CHECK_MINUTES),
+    }
 
 # --- Spectacular (Swagger) ---
 SPECTACULAR_SETTINGS = {
@@ -203,20 +341,78 @@ if USE_S3:
     }
     MEDIA_URL = f'{AWS_S3_URL_PROTOCOL}//{AWS_S3_CUSTOM_DOMAIN}/media/'
 
+# --- Logging ---
+LOG_LEVEL = config('LOG_LEVEL', default='INFO')
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        # Project apps (apps.notifications.*, apps.accounts.*, ...) — the email
+        # diagnostics live here, so keep them at INFO by default.
+        'apps': {
+            'handlers': ['console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'celery': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
+
 # --- Email ---
 EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
 EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
-EMAIL_USE_TLS = True
+# Port 465 = implicit SSL (SMTPS); port 587 = STARTTLS. They are mutually
+# exclusive in Django, so default them from the port and let env override.
+EMAIL_USE_SSL = config('EMAIL_USE_SSL', default=EMAIL_PORT == 465, cast=bool)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=not EMAIL_USE_SSL, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+EMAIL_TIMEOUT = config('EMAIL_TIMEOUT', default=15, cast=int)
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@fashionshop.kz')
 
-# --- Payments ---
-STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY', default='')
-STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET', default='')
-KASPI_MERCHANT_ID = config('KASPI_MERCHANT_ID', default='')
-KASPI_SECRET = config('KASPI_SECRET', default='')
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured(
+        'EMAIL_USE_TLS and EMAIL_USE_SSL are mutually exclusive: use TLS for '
+        'port 587 or SSL for port 465, not both.'
+    )
+
+# --- Payments (FreedomPay) ---
+FREEDOMPAY_MERCHANT_ID = config('FREEDOMPAY_MERCHANT_ID', default='')
+FREEDOMPAY_SECRET_KEY = config('FREEDOMPAY_SECRET_KEY', default='')
+FREEDOMPAY_API_URL = config('FREEDOMPAY_API_URL', default='https://api.freedompay.kz')
+FREEDOMPAY_TESTING_MODE = config('FREEDOMPAY_TESTING_MODE', default=1, cast=int)
+
+# Публичный URL бэкенда (должен быть доступен FreedomPay для result_url callback)
+BACKEND_PUBLIC_URL = config('BACKEND_PUBLIC_URL', default='http://localhost:8000')
+# URL фронтенда для построения success_url / fail_url
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
 
 # --- Phone numbers ---
 PHONENUMBER_DEFAULT_REGION = 'KZ'

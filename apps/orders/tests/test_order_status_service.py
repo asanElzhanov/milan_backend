@@ -10,15 +10,16 @@ from apps.orders.services import (
     InvalidOrderStatusTransitionError,
     OrderStatusService,
 )
+from apps.payments.models import Payment
 
 
 class OrderStatusServiceTests(TestCase):
     def setUp(self):
-        category = Category.objects.create(name='Shoes', slug='status-shoes')
-        brand = Brand.objects.create(name='Nike', slug='status-nike')
+        category = Category.objects.create(name_ru='Shoes', slug='status-shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='status-nike')
         product = Product.objects.create(
             sku='SKU-STATUS',
-            name='Status Product',
+            name_ru='Status Product',
             slug='status-product',
             category=category,
             brand=brand,
@@ -135,6 +136,50 @@ class OrderStatusServiceTests(TestCase):
         self.assertEqual(history.old_status, Order.Status.COMPLETED)
         self.assertEqual(history.new_status, Order.Status.RETURNED)
         self.assertEqual(history.changed_by, self.manager)
+
+    def test_cancel_order_marks_pending_payment_cancelled(self):
+        order = self.create_order()
+        payment = Payment.objects.create(
+            order=order,
+            provider=Payment.Provider.FREEDOM,
+            amount=order.total_amount,
+            status=Payment.Status.PENDING,
+        )
+
+        OrderStatusService.cancel_order(order, comment='Customer cancelled')
+
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.CANCELLED)
+
+    def test_expired_cancel_sets_expired_statuses(self):
+        order = self.create_order()
+        payment = Payment.objects.create(
+            order=order,
+            provider=Payment.Provider.FREEDOM,
+            amount=order.total_amount,
+            status=Payment.Status.PENDING,
+        )
+
+        cancelled_order = OrderStatusService.cancel_order(order, expired=True)
+
+        self.assertEqual(cancelled_order.status, Order.Status.CANCELLED)
+        self.assertEqual(cancelled_order.payment_status, Order.PaymentStatus.EXPIRED)
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.EXPIRED)
+
+    def test_cancel_order_keeps_successful_payment(self):
+        order = self.create_order()
+        payment = Payment.objects.create(
+            order=order,
+            provider=Payment.Provider.FREEDOM,
+            amount=order.total_amount,
+            status=Payment.Status.SUCCESS,
+        )
+
+        OrderStatusService.cancel_order(order)
+
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.SUCCESS)
 
     def test_mark_paid_updates_payment_status_and_order_status(self):
         order = self.create_order()

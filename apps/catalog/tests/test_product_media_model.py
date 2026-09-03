@@ -15,11 +15,11 @@ class ProductMediaModelTests(TestCase):
         self.override = override_settings(MEDIA_ROOT=self.media_root)
         self.override.enable()
 
-        category = Category.objects.create(name='Shoes', slug='shoes')
-        brand = Brand.objects.create(name='Nike', slug='nike')
+        category = Category.objects.create(name_ru='Shoes', slug='shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='nike')
         self.product = Product.objects.create(
             sku='SKU-MEDIA',
-            name='Air Max',
+            name_ru='Air Max',
             category=category,
             brand=brand,
             price=Decimal('100.00'),
@@ -34,7 +34,7 @@ class ProductMediaModelTests(TestCase):
             product=self.product,
             media_type=ProductMedia.MediaType.VIDEO,
             url='https://example.com/video.mp4',
-            title='Runway video',
+            title_ru='Runway video',
         )
 
         media.full_clean()

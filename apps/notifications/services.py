@@ -1,12 +1,11 @@
 from django.contrib.auth import get_user_model
-from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Q
 
 from apps.accounts.models import User
 
+from .email import send_email_logged
 from .models import Notification
 
 
@@ -121,7 +120,7 @@ class NotificationService:
         return cls.notify_staff(
             title='Новый отзыв на модерации',
             message=(
-                f'Новый отзыв на товар "{review.product.name}".\n'
+                f'Новый отзыв на товар "{review.product.name_ru}".\n'
                 f'Пользователь: {review.user.email}\n'
                 f'Оценка: {review.rating}'
             ),
@@ -135,7 +134,7 @@ class NotificationService:
             title=f'Низкий остаток: {variant.sku}',
             message=(
                 f'Остаток варианта {variant.sku} ниже порога.\n'
-                f'Товар: {variant.product.name}\n'
+                f'Товар: {variant.product.name_ru}\n'
                 f'Текущий остаток: {variant.stock_quantity}\n'
                 f'Порог: {threshold}'
             ),
@@ -261,7 +260,7 @@ class EmailNotificationService:
     def send_review_published_email(cls, review):
         subject = 'Ваш отзыв опубликован'
         message = (
-            f'Ваш отзыв на товар "{review.product.name}" опубликован.\n'
+            f'Ваш отзыв на товар "{review.product.name_ru}" опубликован.\n'
             'Результат модерации: опубликован.\n'
         )
         if review.moderation_comment:
@@ -272,7 +271,7 @@ class EmailNotificationService:
     def send_review_rejected_email(cls, review):
         subject = 'Ваш отзыв отклонён'
         message = (
-            f'Ваш отзыв на товар "{review.product.name}" отклонён.\n'
+            f'Ваш отзыв на товар "{review.product.name_ru}" отклонён.\n'
             'Результат модерации: отклонён.\n'
         )
         if review.moderation_comment:
@@ -283,12 +282,11 @@ class EmailNotificationService:
     def _send_customer_email(recipient_email, subject, message):
         if not recipient_email:
             return 0
-        return send_mail(
+        return send_email_logged(
             subject=subject,
             message=message,
-            from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[recipient_email],
-            fail_silently=False,
+            context='customer notification',
         )
 
     @staticmethod

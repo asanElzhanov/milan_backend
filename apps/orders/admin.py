@@ -378,12 +378,12 @@ class PromoCodeUsageAdmin(admin.ModelAdmin):
 @admin.register(DeliveryMethod)
 class DeliveryMethodAdmin(admin.ModelAdmin):
     list_display = (
-        'name', 'code', 'delivery_type', 'price_type',
+        'name_ru', 'name_kz', 'name_en', 'code', 'delivery_type', 'price_type',
         'base_price', 'free_from_amount', 'is_active', 'sort_order',
     )
     list_filter = ('is_active', 'delivery_type', 'price_type')
-    search_fields = ('name', 'code', 'slug')
+    search_fields = ('name_ru', 'name_kz', 'name_en', 'code', 'slug')
     list_editable = ('price_type', 'base_price', 'free_from_amount', 'is_active', 'sort_order')
-    ordering = ('sort_order', 'name')
-    prepopulated_fields = {'slug': ('name',)}
+    ordering = ('sort_order', 'name_ru')
+    prepopulated_fields = {'slug': ('name_ru',)}
     readonly_fields = ('created_at', 'updated_at')

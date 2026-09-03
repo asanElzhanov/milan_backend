@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import User
-from apps.cms.models import StaticPage
+from apps.cms.models import StaticPage, StaticPageBlock
 
 
 class StaticPageAdminTests(TestCase):
@@ -13,9 +13,9 @@ class StaticPageAdminTests(TestCase):
         )
         self.client.force_login(self.admin_user)
         self.page = StaticPage.objects.create(
-            title='Privacy Policy',
+            title_ru='Privacy Policy',
             slug='privacy-policy',
-            content='Privacy content',
+            content_ru='Privacy content',
         )
 
     def test_static_page_changelist_opens(self):
@@ -30,3 +30,16 @@ class StaticPageAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Privacy Policy')
+        self.assertContains(response, 'Основной текст')
+
+    def test_block_changelist_opens(self):
+        StaticPageBlock.objects.create(
+            page=self.page,
+            title_ru='Shipping terms',
+            content_ru='Shipping text',
+        )
+
+        response = self.client.get(reverse('admin:cms_staticpageblock_changelist'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Shipping terms')

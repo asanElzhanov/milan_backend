@@ -10,11 +10,11 @@ class ProductFilterTests(APITestCase):
     list_url = '/api/v1/catalog/products/'
 
     def setUp(self):
-        category = Category.objects.create(name='Shoes', slug='shoes')
-        brand = Brand.objects.create(name='Nike', slug='nike')
+        category = Category.objects.create(name_ru='Shoes', slug='shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='nike')
         self.discounted = Product.objects.create(
             sku='SKU-DISCOUNT',
-            name='Discounted',
+            name_ru='Discounted',
             slug='discounted',
             category=category,
             brand=brand,
@@ -23,7 +23,7 @@ class ProductFilterTests(APITestCase):
         )
         self.regular = Product.objects.create(
             sku='SKU-REGULAR',
-            name='Regular',
+            name_ru='Regular',
             slug='regular',
             category=category,
             brand=brand,

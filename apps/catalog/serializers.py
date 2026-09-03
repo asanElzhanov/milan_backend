@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
 from django.urls import reverse
@@ -6,6 +7,7 @@ from rest_framework import serializers
 
 from apps.orders.models import Order
 from apps.orders.services import PromoCodeError, PromoCodeService
+from apps.common.statuses import get_status_labels
 
 from .models import (
     Banner, Brand, Category, Color, Product, ProductImage,
@@ -13,13 +15,15 @@ from .models import (
     ImportJob, ImportJobError,
 )
 from .services import ProductReviewService
+from .media_utils import media_file_validator, media_type_from_name
 
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = (
-            'id', 'name', 'slug', 'parent', 'image', 'description',
+            'id', 'name_ru', 'name_kz', 'name_en', 'slug', 'parent', 'image',
+            'description_ru', 'description_kz', 'description_en',
             'is_active', 'sort_order', 'seo_title', 'seo_description',
             'seo_keywords',
         )
@@ -43,13 +47,13 @@ class CategoryTreeSerializer(CategorySerializer):
 class BrandSerializer(serializers.ModelSerializer):
     class Meta:
         model = Brand
-        fields = ('id', 'name', 'slug', 'logo', 'is_active')
+        fields = ('id', 'name_ru', 'name_kz', 'name_en', 'slug', 'logo', 'is_active')
 
 
 class ColorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Color
-        fields = ('id', 'name', 'slug', 'hex_code', 'is_active')
+        fields = ('id', 'name_ru', 'name_kz', 'name_en', 'slug', 'hex_code', 'is_active')
 
 
 class SizeSerializer(serializers.ModelSerializer):
@@ -60,11 +64,12 @@ class SizeSerializer(serializers.ModelSerializer):
 
 class ProductImageSerializer(serializers.ModelSerializer):
     alt = serializers.CharField(source='alt_text', read_only=True)
+    media_type = serializers.ReadOnlyField()
 
     class Meta:
         model = ProductImage
         fields = (
-            'id', 'image', 'alt_text', 'alt',
+            'id', 'image', 'media_type', 'alt_text', 'alt',
             'is_main', 'sort_order', 'created_at', 'updated_at',
         )
 
@@ -73,7 +78,8 @@ class ProductMediaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductMedia
         fields = (
-            'id', 'media_type', 'file', 'url', 'title', 'alt_text',
+            'id', 'media_type', 'file', 'url',
+            'title_ru', 'title_kz', 'title_en', 'alt_text',
             'sort_order', 'is_active', 'created_at', 'updated_at',
         )
 
@@ -109,7 +115,10 @@ class ProductVariantSerializer(serializers.ModelSerializer):
 class StockVariantSerializer(serializers.ModelSerializer):
     variant_id = serializers.IntegerField(source='id', read_only=True)
     product_id = serializers.IntegerField(source='product.id', read_only=True)
-    product_name = serializers.CharField(source='product.name', read_only=True)
+    product_name = serializers.CharField(source='product.name_ru', read_only=True)
+    product_name_ru = serializers.CharField(source='product.name_ru', read_only=True)
+    product_name_kz = serializers.CharField(source='product.name_kz', read_only=True)
+    product_name_en = serializers.CharField(source='product.name_en', read_only=True)
     product_slug = serializers.CharField(source='product.slug', read_only=True)
     category = serializers.SerializerMethodField()
     brand = serializers.SerializerMethodField()
@@ -120,7 +129,8 @@ class StockVariantSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductVariant
         fields = (
-            'variant_id', 'product_id', 'product_name', 'product_slug',
+            'variant_id', 'product_id', 'product_name',
+            'product_name_ru', 'product_name_kz', 'product_name_en', 'product_slug',
             'category', 'brand', 'size', 'color',
             'sku', 'stock_quantity', 'is_active', 'in_stock',
         )
@@ -130,14 +140,20 @@ class StockVariantSerializer(serializers.ModelSerializer):
         category = obj.product.category
         if not category:
             return None
-        return {'id': category.id, 'name': category.name, 'slug': category.slug}
+        return {
+            'id': category.id, 'slug': category.slug,
+            'name_ru': category.name_ru, 'name_kz': category.name_kz, 'name_en': category.name_en,
+        }
 
     @extend_schema_field(serializers.DictField())
     def get_brand(self, obj):
         brand = obj.product.brand
         if not brand:
             return None
-        return {'id': brand.id, 'name': brand.name, 'slug': brand.slug}
+        return {
+            'id': brand.id, 'slug': brand.slug,
+            'name_ru': brand.name_ru, 'name_kz': brand.name_kz, 'name_en': brand.name_en,
+        }
 
 
 class StockMovementSerializer(serializers.ModelSerializer):
@@ -156,7 +172,10 @@ class StockMovementSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.DictField())
     def get_product(self, obj):
         product = obj.variant.product
-        return {'id': product.id, 'name': product.name, 'slug': product.slug}
+        return {
+            'id': product.id, 'slug': product.slug,
+            'name_ru': product.name_ru, 'name_kz': product.name_kz, 'name_en': product.name_en,
+        }
 
     @extend_schema_field(serializers.DictField())
     def get_user(self, obj):
@@ -204,11 +223,12 @@ class ImportJobUploadSerializer(serializers.ModelSerializer):
 class ImportJobBaseSerializer(serializers.ModelSerializer):
     created_by = serializers.SerializerMethodField()
     error_report = serializers.SerializerMethodField()
+    status_labels = serializers.SerializerMethodField()
 
     class Meta:
         model = ImportJob
         fields = (
-            'id', 'status', 'total_count', 'success_count', 'failed_count',
+            'id', 'status', 'status_labels', 'total_count', 'success_count', 'failed_count',
             'error_message', 'error_report', 'created_by',
             'started_at', 'finished_at', 'created_at',
         )
@@ -222,6 +242,10 @@ class ImportJobBaseSerializer(serializers.ModelSerializer):
             'email': obj.created_by.email,
             'full_name': obj.created_by.full_name,
         }
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_status_labels(self, obj):
+        return get_status_labels('import_job', obj.status)
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_error_report(self, obj):
@@ -259,23 +283,28 @@ class ImportJobErrorSerializer(serializers.ModelSerializer):
         )
 
 
-class ReviewImageSerializer(serializers.ModelSerializer):
+class ReviewMediaSerializer(serializers.ModelSerializer):
+    url = serializers.FileField(source='image', read_only=True)
+    media_type = serializers.CharField(read_only=True)
+
     class Meta:
         model = ReviewImage
-        fields = ('id', 'image')
+        fields = ('id', 'url', 'media_type')
 
 
 class ReviewSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField()
-    images = ReviewImageSerializer(many=True, read_only=True)
+    media = ReviewMediaSerializer(source='images', many=True, read_only=True)
     product = serializers.SerializerMethodField()
     order = serializers.SerializerMethodField()
+    status_labels = serializers.SerializerMethodField()
 
     class Meta:
         model = Review
         fields = (
             'id', 'product', 'order', 'user_name', 'rating', 'text',
-            'status', 'images', 'is_verified_purchase', 'created_at', 'updated_at',
+            'status', 'status_labels', 'media', 'is_verified_purchase', 'moderation_comment',
+            'moderated_at', 'created_at', 'updated_at',
         )
 
     @extend_schema_field(OpenApiTypes.STR)
@@ -284,19 +313,30 @@ class ReviewSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.DictField())
     def get_product(self, obj):
-        return {'id': obj.product_id, 'slug': obj.product.slug, 'name': obj.product.name}
+        return {
+            'id': obj.product_id, 'slug': obj.product.slug,
+            'name_ru': obj.product.name_ru, 'name_kz': obj.product.name_kz, 'name_en': obj.product.name_en,
+        }
 
     @extend_schema_field(serializers.DictField())
     def get_order(self, obj):
         return {'id': obj.order_id, 'order_number': obj.order.order_number}
 
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_status_labels(self, obj):
+        return get_status_labels('review', obj.status)
+
 
 class ReviewListSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField()
+    media = ReviewMediaSerializer(source='images', many=True, read_only=True)
 
     class Meta:
         model = Review
-        fields = ('id', 'user_name', 'rating', 'text', 'created_at')
+        fields = (
+            'id', 'user_name', 'rating', 'text', 'media',
+            'is_verified_purchase', 'created_at',
+        )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_user_name(self, obj):
@@ -308,13 +348,19 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
     product_slug = serializers.SlugField(required=False, write_only=True)
     order_id = serializers.IntegerField(required=False, write_only=True, min_value=1)
     order_number = serializers.CharField(required=False, write_only=True)
+    media = serializers.ListField(
+        child=serializers.FileField(),
+        required=False,
+        write_only=True,
+        max_length=settings.REVIEW_MAX_MEDIA_FILES,
+    )
 
     class Meta:
         model = Review
         fields = (
             'id', 'product', 'order',
             'product_id', 'product_slug', 'order_id', 'order_number',
-            'rating', 'text', 'status', 'created_at',
+            'rating', 'text', 'media', 'status', 'created_at',
         )
         read_only_fields = ('id', 'product', 'order', 'status', 'created_at')
 
@@ -333,6 +379,7 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         product = validated_data.pop('product')
         order = validated_data.pop('order')
+        media_files = validated_data.pop('media', [])
         validated_data.pop('product_id', None)
         validated_data.pop('product_slug', None)
         validated_data.pop('order_id', None)
@@ -342,10 +389,44 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
                 user=self.context['request'].user,
                 product=product,
                 order=order,
+                media_files=media_files,
                 **validated_data,
             )
         except DjangoValidationError as exc:
             raise serializers.ValidationError(self._error_detail(exc)) from exc
+
+    def validate_media(self, media_files):
+        errors = {}
+        for index, media_file in enumerate(media_files):
+            try:
+                media_file_validator(media_file)
+            except DjangoValidationError as exc:
+                errors[index] = list(exc.messages)
+                continue
+
+            media_type = media_type_from_name(media_file.name)
+            max_size = (
+                settings.REVIEW_MAX_VIDEO_SIZE
+                if media_type == 'video'
+                else settings.REVIEW_MAX_IMAGE_SIZE
+            )
+            if media_file.size > max_size:
+                max_size_mb = max_size // (1024 * 1024)
+                errors[index] = [f'Размер файла не должен превышать {max_size_mb} МБ.']
+                continue
+
+            content_type = (getattr(media_file, 'content_type', '') or '').lower()
+            expected_prefix = f'{media_type}/'
+            if (
+                content_type
+                and content_type != 'application/octet-stream'
+                and not content_type.startswith(expected_prefix)
+            ):
+                errors[index] = ['Тип содержимого файла не соответствует его расширению.']
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return media_files
 
     @staticmethod
     def _resolve_product(attrs):
@@ -385,10 +466,9 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
 # Лёгкий сериализатор для списков
 class ProductListSerializer(serializers.ModelSerializer):
     main_image = serializers.SerializerMethodField()
+    main_media_type = serializers.SerializerMethodField()
     category = serializers.SerializerMethodField()
     brand = serializers.SerializerMethodField()
-    brand_name = serializers.CharField(source='brand.name', read_only=True)
-    category_name = serializers.CharField(source='category.name', read_only=True)
     discount_percent = serializers.ReadOnlyField()
     discount = serializers.ReadOnlyField()
     is_sale = serializers.ReadOnlyField()
@@ -402,11 +482,10 @@ class ProductListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = (
-            'id', 'name', 'slug', 'sku', 'category', 'brand',
-            'brand_name', 'category_name',
+            'id', 'name_ru', 'name_kz', 'name_en', 'slug', 'sku', 'category', 'brand',
             'price', 'old_price', 'discount', 'discount_percent',
             'is_new', 'is_sale', 'is_active',
-            'main_image', 'min_price', 'in_stock',
+            'main_image', 'main_media_type', 'min_price', 'in_stock',
             'available_colors', 'available_sizes',
             'rating', 'average_rating', 'reviews_count',
         )
@@ -422,17 +501,31 @@ class ProductListSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(img.image.url) if request else img.image.url
         return None
 
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_main_media_type(self, obj):
+        images = list(obj.images.all())
+        media = next((item for item in images if item.is_main), None)
+        if media is None and images:
+            media = images[0]
+        return media.media_type if media else None
+
     @extend_schema_field(serializers.DictField())
     def get_category(self, obj):
         if not obj.category:
             return None
-        return {'id': obj.category.id, 'name': obj.category.name, 'slug': obj.category.slug}
+        return {
+            'id': obj.category.id, 'slug': obj.category.slug,
+            'name_ru': obj.category.name_ru, 'name_kz': obj.category.name_kz, 'name_en': obj.category.name_en,
+        }
 
     @extend_schema_field(serializers.DictField())
     def get_brand(self, obj):
         if not obj.brand:
             return None
-        return {'id': obj.brand.id, 'name': obj.brand.name, 'slug': obj.brand.slug}
+        return {
+            'id': obj.brand.id, 'slug': obj.brand.slug,
+            'name_ru': obj.brand.name_ru, 'name_kz': obj.brand.name_kz, 'name_en': obj.brand.name_en,
+        }
 
     @extend_schema_field(OpenApiTypes.DECIMAL)
     def get_min_price(self, obj):
@@ -506,9 +599,11 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = (
-            'id', 'name', 'slug', 'sku',
+            'id', 'name_ru', 'name_kz', 'name_en', 'slug', 'sku',
             'category', 'brand',
-            'description', 'composition', 'material', 'season',
+            'description_ru', 'description_kz', 'description_en',
+            'composition_ru', 'composition_kz', 'composition_en',
+            'material_ru', 'material_kz', 'material_en', 'season',
             'price', 'old_price', 'discount', 'discount_percent', 'is_sale',
             'images', 'media', 'videos', 'variants',
             'available_sizes', 'available_colors',
@@ -588,16 +683,22 @@ class ProductDetailSerializer(serializers.ModelSerializer):
         for variant in obj.variants.all():
             if variant.is_active and variant.color:
                 colors[variant.color.id] = variant.color
-        ordered_colors = sorted(colors.values(), key=lambda color: color.name)
+        ordered_colors = sorted(colors.values(), key=lambda color: color.name_ru)
         return ColorSerializer(ordered_colors, many=True).data
 
 
 class BannerSerializer(serializers.ModelSerializer):
+    image_type = serializers.ReadOnlyField()
+    image_mobile_type = serializers.ReadOnlyField()
+
     class Meta:
         model = Banner
         fields = (
-            'id', 'title', 'subtitle', 'button_text',
-            'image', 'image_mobile', 'link', 'position', 'sort_order',
+            'id', 'title_ru', 'title_kz', 'title_en',
+            'subtitle_ru', 'subtitle_kz', 'subtitle_en',
+            'button_text_ru', 'button_text_kz', 'button_text_en',
+            'image', 'image_type', 'image_mobile', 'image_mobile_type',
+            'link', 'position', 'sort_order',
         )
 
 

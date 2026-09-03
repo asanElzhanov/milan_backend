@@ -23,19 +23,19 @@ class ProductDetailApiTests(APITestCase):
         self.override = override_settings(MEDIA_ROOT=self.media_root)
         self.override.enable()
 
-        self.category = Category.objects.create(name='Shoes', slug='shoes')
-        self.brand = Brand.objects.create(name='Nike', slug='nike')
-        self.black = Color.objects.create(name='Black', slug='black', hex_code='#000000')
-        self.white = Color.objects.create(name='White', slug='white', hex_code='#FFFFFF')
+        self.category = Category.objects.create(name_ru='Shoes', slug='shoes')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='nike')
+        self.black = Color.objects.create(name_ru='Black', slug='black', hex_code='#000000')
+        self.white = Color.objects.create(name_ru='White', slug='white', hex_code='#FFFFFF')
         self.size_41 = Size.objects.create(value='41', size_type=Size.SizeType.SHOES, sort_order=1)
         self.size_42 = Size.objects.create(value='42', size_type=Size.SizeType.SHOES, sort_order=2)
         self.product = Product.objects.create(
             sku='SKU-DETAIL',
-            name='Air Max',
+            name_ru='Air Max',
             slug='air-max',
             category=self.category,
             brand=self.brand,
-            description='Running shoes',
+            description_ru='Running shoes',
             price=Decimal('100.00'),
             old_price=Decimal('120.00'),
             seo_title='Air Max SEO',
@@ -77,7 +77,7 @@ class ProductDetailApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['id'], self.product.id)
         self.assertEqual(response.data['slug'], self.product.slug)
-        self.assertEqual(response.data['description'], 'Running shoes')
+        self.assertEqual(response.data['description_ru'], 'Running shoes')
         self.assertEqual(response.data['category']['slug'], self.category.slug)
         self.assertEqual(response.data['brand']['slug'], self.brand.slug)
         self.assertEqual(response.data['seo_title'], 'Air Max SEO')
@@ -94,7 +94,7 @@ class ProductDetailApiTests(APITestCase):
     def test_inactive_product_is_not_public(self):
         inactive = Product.objects.create(
             sku='SKU-INACTIVE-DETAIL',
-            name='Inactive',
+            name_ru='Inactive',
             slug='inactive-detail',
             category=self.category,
             brand=self.brand,
@@ -133,7 +133,7 @@ class ProductDetailApiTests(APITestCase):
             product=self.product,
             media_type=ProductMedia.MediaType.VIDEO,
             url='https://example.com/video.mp4',
-            title='Runway video',
+            title_ru='Runway video',
         )
         ProductMedia.objects.create(
             product=self.product,

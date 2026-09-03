@@ -393,12 +393,12 @@ class ProductImportService:
         elif data.get('product_sku'):
             product.sku = data['product_sku']
 
-        product.name = data['product_name']
+        product.name_ru = data['product_name']
         product.category = data['category']
         product.brand = data['brand']
         product.price = data['price']
         product.old_price = data['old_price']
-        product.description = data['description']
+        product.description_ru = data['description']
         product.is_new = data['is_new']
         product.is_active = data['is_active']
         product.seo_title = data['seo_title']

@@ -32,11 +32,11 @@ class OrderAdminTests(TestCase):
         self.user = User.objects.create_user(email='order-customer@example.com')
         self.client.force_login(self.admin_user)
 
-        category = Category.objects.create(name='Shoes', slug='order-admin-shoes')
-        brand = Brand.objects.create(name='Nike', slug='order-admin-nike')
+        category = Category.objects.create(name_ru='Shoes', slug='order-admin-shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='order-admin-nike')
         product = Product.objects.create(
             sku='SKU-ORDER-ADMIN',
-            name='Order Admin Product',
+            name_ru='Order Admin Product',
             slug='order-admin-product',
             category=category,
             brand=brand,
@@ -332,11 +332,11 @@ class PromoCodeAdminTests(TestCase):
         self.user = User.objects.create_user(email='promo-admin-customer@example.com')
         self.client.force_login(self.admin_user)
 
-        category = Category.objects.create(name='Promo Admin Shoes', slug='promo-admin-shoes')
-        brand = Brand.objects.create(name='Promo Admin Nike', slug='promo-admin-nike')
+        category = Category.objects.create(name_ru='Promo Admin Shoes', slug='promo-admin-shoes')
+        brand = Brand.objects.create(name_ru='Promo Admin Nike', slug='promo-admin-nike')
         product = Product.objects.create(
             sku='SKU-PROMO-ADMIN',
-            name='Promo Admin Product',
+            name_ru='Promo Admin Product',
             slug='promo-admin-product',
             category=category,
             brand=brand,

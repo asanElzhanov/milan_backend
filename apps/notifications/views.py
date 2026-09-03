@@ -1,19 +1,34 @@
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, inline_serializer
+from drf_spectacular.utils import (
+    OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_field, inline_serializer,
+)
 from rest_framework import generics, permissions, serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Notification
+from apps.common.statuses import get_status_labels
 
 
 class NotificationSerializer(serializers.ModelSerializer):
+    read_status = serializers.SerializerMethodField()
+    read_status_labels = serializers.SerializerMethodField()
+
     class Meta:
         model = Notification
         fields = (
-            'id', 'title', 'message', 'event_type', 'is_read', 'created_at',
+            'id', 'title', 'message', 'event_type', 'is_read',
+            'read_status', 'read_status_labels', 'created_at',
         )
         read_only_fields = fields
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_read_status(self, obj):
+        return 'read' if obj.is_read else 'unread'
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_read_status_labels(self, obj):
+        return get_status_labels('notification', self.get_read_status(obj))
 
 
 class NotificationListView(generics.ListAPIView):

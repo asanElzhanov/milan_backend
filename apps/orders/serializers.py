@@ -1,5 +1,6 @@
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
+from apps.common.statuses import get_status_labels
 from .models import DeliveryMethod, Order, OrderItem, OrderStatusHistory, Cart, CartItem
 from .services import CartService, CheckoutService
 
@@ -8,8 +9,9 @@ class DeliveryMethodSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeliveryMethod
         fields = (
-            'id', 'name', 'code', 'slug', 'delivery_type',
-            'description', 'is_active', 'base_price', 'price_type',
+            'id', 'name_ru', 'name_kz', 'name_en', 'code', 'slug', 'delivery_type',
+            'description_ru', 'description_kz', 'description_en',
+            'is_active', 'base_price', 'price_type',
             'free_from_amount', 'sort_order',
         )
 
@@ -17,7 +19,10 @@ class DeliveryMethodSerializer(serializers.ModelSerializer):
 class CartItemSerializer(serializers.ModelSerializer):
     variant_id = serializers.IntegerField(source='variant.id', read_only=True)
     product_id = serializers.IntegerField(source='variant.product.id', read_only=True)
-    product_name = serializers.CharField(source='variant.product.name', read_only=True)
+    product_name = serializers.CharField(source='variant.product.name_ru', read_only=True)
+    product_name_ru = serializers.CharField(source='variant.product.name_ru', read_only=True)
+    product_name_kz = serializers.CharField(source='variant.product.name_kz', read_only=True)
+    product_name_en = serializers.CharField(source='variant.product.name_en', read_only=True)
     product_slug = serializers.CharField(source='variant.product.slug', read_only=True)
     sku = serializers.CharField(source='variant.sku', read_only=True)
     color = serializers.SerializerMethodField()
@@ -31,14 +36,15 @@ class CartItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = CartItem
         fields = (
-            'id', 'variant_id', 'product_id', 'product_name', 'product_slug',
+            'id', 'variant_id', 'product_id', 'product_name',
+            'product_name_ru', 'product_name_kz', 'product_name_en', 'product_slug',
             'sku', 'size', 'color', 'quantity', 'unit_price', 'line_total',
             'image', 'available_stock', 'in_stock',
         )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_color(self, obj):
-        return obj.variant.color.name if obj.variant.color else None
+        return obj.variant.color.name_ru if obj.variant.color else None
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_size(self, obj):
@@ -141,38 +147,78 @@ class CartPromoCodeApplySerializer(serializers.Serializer):
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
+    image = serializers.SerializerMethodField()
+
     class Meta:
         model = OrderItem
         fields = (
             'id', 'product_name', 'product_slug', 'sku',
             'size_name', 'color_name', 'unit_price',
-            'quantity', 'total_price',
+            'quantity', 'total_price', 'image',
         )
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_image(self, obj):
+        images = list(obj.variant.product.images.all())
+        image = next((item for item in images if item.is_main), None)
+        if image is None and images:
+            image = images[0]
+        if not image:
+            return None
+        request = self.context.get('request')
+        return request.build_absolute_uri(image.image.url) if request else image.image.url
 
 
 class OrderStatusHistorySerializer(serializers.ModelSerializer):
+    old_status_labels = serializers.SerializerMethodField()
+    new_status_labels = serializers.SerializerMethodField()
+
     class Meta:
         model = OrderStatusHistory
-        fields = ('old_status', 'new_status', 'changed_by', 'comment', 'created_at')
+        fields = (
+            'old_status', 'old_status_labels', 'new_status', 'new_status_labels',
+            'changed_by', 'comment', 'created_at',
+        )
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField(), allow_null=True))
+    def get_old_status_labels(self, obj):
+        return get_status_labels('order', obj.old_status) if obj.old_status else None
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_new_status_labels(self, obj):
+        return get_status_labels('order', obj.new_status)
 
 
 class OrderListSerializer(serializers.ModelSerializer):
     items_count = serializers.IntegerField(read_only=True)
+    status_labels = serializers.SerializerMethodField()
+    payment_status_labels = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = (
-            'order_number', 'status', 'payment_status',
+            'order_number', 'status', 'status_labels',
+            'payment_status', 'payment_status_labels',
             'delivery_method', 'delivery_method_code', 'delivery_method_name',
             'items_total', 'delivery_price', 'delivery_requires_manager_calculation',
             'delivery_price_is_final', 'promo_code_text', 'discount_amount',
             'total_amount', 'items_count', 'created_at',
         )
 
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_status_labels(self, obj):
+        return get_status_labels('order', obj.status)
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_payment_status_labels(self, obj):
+        return get_status_labels('order_payment', obj.payment_status)
+
 
 class OrderDetailSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     status_history = OrderStatusHistorySerializer(many=True, read_only=True)
+    status_labels = serializers.SerializerMethodField()
+    payment_status_labels = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -182,10 +228,19 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             'delivery_method_code', 'delivery_method_name',
             'items_total', 'delivery_price', 'delivery_requires_manager_calculation',
             'delivery_price_is_final', 'promo_code_text', 'discount_amount',
-            'total_amount', 'status', 'payment_status', 'comment',
+            'total_amount', 'status', 'status_labels',
+            'payment_status', 'payment_status_labels', 'comment',
             'items', 'status_history',
             'created_at',
         )
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_status_labels(self, obj):
+        return get_status_labels('order', obj.status)
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_payment_status_labels(self, obj):
+        return get_status_labels('order_payment', obj.payment_status)
 
 
 OrderSerializer = OrderDetailSerializer
@@ -259,6 +314,7 @@ class CheckoutSerializer(serializers.Serializer):
             delivery_method=validated_data['delivery_method'],
             promo_code=validated_data.get('promo_code') or None,
             comment=validated_data.get('comment', ''),
+            anonymous_id_hash=self.context.get('anonymous_id_hash', ''),
         )
 
 

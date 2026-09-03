@@ -11,11 +11,11 @@ from apps.orders.services import CartService
 
 class CartMergeApiTests(APITestCase):
     def setUp(self):
-        category = Category.objects.create(name='Shoes', slug='merge-cart-shoes')
-        brand = Brand.objects.create(name='Nike', slug='merge-cart-nike')
+        category = Category.objects.create(name_ru='Shoes', slug='merge-cart-shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='merge-cart-nike')
         self.product = Product.objects.create(
             sku='SKU-MERGE-CART',
-            name='Merge Cart Product',
+            name_ru='Merge Cart Product',
             slug='merge-cart-product',
             category=category,
             brand=brand,

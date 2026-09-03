@@ -9,6 +9,8 @@ from django.core.validators import MaxValueValidator, MinValueValidator, RegexVa
 from mptt.managers import TreeManager
 from mptt.models import MPTTModel, TreeForeignKey
 
+from .media_utils import media_file_validator, media_type_from_name
+
 
 class CategoryQuerySet(models.QuerySet):
     def active(self):
@@ -21,14 +23,18 @@ class CategoryManager(TreeManager.from_queryset(CategoryQuerySet)):
 
 class Category(MPTTModel):
     """Дерево категорий: Обувь → Кроссовки"""
-    name = models.CharField(_('название'), max_length=100)
+    name_ru = models.CharField(_('название'), max_length=100)
+    name_kz = models.CharField(_('название (каз.)'), max_length=100, blank=True, default='')
+    name_en = models.CharField(_('название (англ.)'), max_length=100, blank=True, default='')
     slug = models.SlugField(max_length=120, unique=True)
     parent = TreeForeignKey(
         'self', on_delete=models.CASCADE, null=True, blank=True,
         related_name='children', verbose_name=_('родительская категория')
     )
     image = models.ImageField(_('изображение'), upload_to='categories/', blank=True, null=True)
-    description = models.TextField(_('описание'), blank=True)
+    description_ru = models.TextField(_('описание'), blank=True)
+    description_kz = models.TextField(_('описание (каз.)'), blank=True, default='')
+    description_en = models.TextField(_('описание (англ.)'), blank=True, default='')
     is_active = models.BooleanField(_('активна'), default=True)
     sort_order = models.PositiveSmallIntegerField(_('порядок'), default=0)
     seo_title = models.CharField(_('SEO title'), max_length=200, blank=True)
@@ -40,24 +46,26 @@ class Category(MPTTModel):
     objects = CategoryManager()
 
     class MPTTMeta:
-        order_insertion_by = ['sort_order', 'name']
+        order_insertion_by = ['sort_order', 'name_ru']
 
     class Meta:
         verbose_name = _('категория')
         verbose_name_plural = _('категории')
-        ordering = ['sort_order', 'name']
+        ordering = ['sort_order', 'name_ru']
 
     def __str__(self):
-        return self.name
+        return self.name_ru
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.name, allow_unicode=True)
+            self.slug = slugify(self.name_ru, allow_unicode=True)
         super().save(*args, **kwargs)
 
 
 class Brand(models.Model):
-    name = models.CharField(_('название'), max_length=100, unique=True)
+    name_ru = models.CharField(_('название'), max_length=100, unique=True)
+    name_kz = models.CharField(_('название (каз.)'), max_length=100, blank=True, default='')
+    name_en = models.CharField(_('название (англ.)'), max_length=100, blank=True, default='')
     slug = models.SlugField(max_length=120, unique=True)
     logo = models.ImageField(_('лого'), upload_to='brands/', blank=True, null=True)
     is_active = models.BooleanField(_('активен'), default=True)
@@ -67,14 +75,14 @@ class Brand(models.Model):
     class Meta:
         verbose_name = _('бренд')
         verbose_name_plural = _('бренды')
-        ordering = ['name']
+        ordering = ['name_ru']
 
     def __str__(self):
-        return self.name
+        return self.name_ru
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.name, allow_unicode=True)
+            self.slug = slugify(self.name_ru, allow_unicode=True)
         super().save(*args, **kwargs)
 
 
@@ -83,10 +91,13 @@ class Product(models.Model):
     class Season(models.TextChoices):
         SPRING_SUMMER = 'ss', _('Весна/Лето')
         AUTUMN_WINTER = 'aw', _('Осень/Зима')
+        AUTUMN_SPRING = 'as', _('Осень/Весна')
         ALL_SEASON = 'all', _('Всесезонный')
 
     sku = models.CharField(_('артикул'), max_length=100, unique=True)
-    name = models.CharField(_('название'), max_length=255)
+    name_ru = models.CharField(_('название'), max_length=255)
+    name_kz = models.CharField(_('название (каз.)'), max_length=255, blank=True, default='')
+    name_en = models.CharField(_('название (англ.)'), max_length=255, blank=True, default='')
     slug = models.SlugField(max_length=280, unique=True)
     category = models.ForeignKey(
         Category, on_delete=models.SET_NULL, null=True,
@@ -96,9 +107,15 @@ class Product(models.Model):
         Brand, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='products', verbose_name=_('бренд')
     )
-    description = models.TextField(_('описание'), blank=True)
-    composition = models.TextField(_('состав'), blank=True)
-    material = models.CharField(_('материал'), max_length=100, blank=True)
+    description_ru = models.TextField(_('описание'), blank=True)
+    description_kz = models.TextField(_('описание (каз.)'), blank=True, default='')
+    description_en = models.TextField(_('описание (англ.)'), blank=True, default='')
+    composition_ru = models.TextField(_('состав'), blank=True)
+    composition_kz = models.TextField(_('состав (каз.)'), blank=True, default='')
+    composition_en = models.TextField(_('состав (англ.)'), blank=True, default='')
+    material_ru = models.CharField(_('материал'), max_length=100, blank=True)
+    material_kz = models.CharField(_('материал (каз.)'), max_length=100, blank=True, default='')
+    material_en = models.CharField(_('материал (англ.)'), max_length=100, blank=True, default='')
     season = models.CharField(_('сезон'), max_length=10, choices=Season.choices, blank=True)
 
     # Цены
@@ -162,7 +179,7 @@ class Product(models.Model):
         ]
 
     def __str__(self):
-        return self.name
+        return self.name_ru
 
     @property
     def discount_percent(self) -> int:
@@ -198,7 +215,7 @@ class Product(models.Model):
         super().save(*args, **kwargs)
 
     def _generate_unique_slug(self):
-        base_slug = slugify(self.name, allow_unicode=True) or 'product'
+        base_slug = slugify(self.name_ru, allow_unicode=True) or 'product'
         slug = base_slug
         counter = 2
         queryset = Product.objects.filter(slug=slug)
@@ -215,7 +232,12 @@ class Product(models.Model):
 
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')
-    image = models.ImageField(_('изображение'), upload_to='products/images/%Y/%m/%d/')
+    # The historic field/API name is kept for backwards compatibility.
+    image = models.FileField(
+        _('медиафайл'),
+        upload_to='products/images/%Y/%m/%d/',
+        validators=[media_file_validator],
+    )
     alt_text = models.CharField(_('alt text'), max_length=200, blank=True)
     is_main = models.BooleanField(_('главное фото'), default=False)
     sort_order = models.PositiveSmallIntegerField(default=0)
@@ -239,6 +261,10 @@ class ProductImage(models.Model):
 
     def __str__(self):
         return f'{self.product} image #{self.pk or "new"}'
+
+    @property
+    def media_type(self):
+        return media_type_from_name(self.image.name)
 
     def save(self, *args, **kwargs):
         with transaction.atomic():
@@ -270,7 +296,9 @@ class ProductMedia(models.Model):
     media_type = models.CharField(_('тип медиа'), max_length=10, choices=MediaType.choices)
     file = models.FileField(_('файл'), upload_to='products/media/%Y/%m/%d/', blank=True)
     url = models.URLField(_('ссылка'), blank=True)
-    title = models.CharField(_('заголовок'), max_length=200, blank=True)
+    title_ru = models.CharField(_('заголовок'), max_length=200, blank=True)
+    title_kz = models.CharField(_('заголовок (каз.)'), max_length=200, blank=True, default='')
+    title_en = models.CharField(_('заголовок (англ.)'), max_length=200, blank=True, default='')
     alt_text = models.CharField(_('alt text'), max_length=200, blank=True)
     sort_order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(_('активно'), default=True)
@@ -303,7 +331,9 @@ class ProductMedia(models.Model):
 
 
 class Color(models.Model):
-    name = models.CharField(_('название'), max_length=50)
+    name_ru = models.CharField(_('название'), max_length=50)
+    name_kz = models.CharField(_('название (каз.)'), max_length=50, blank=True, default='')
+    name_en = models.CharField(_('название (англ.)'), max_length=50, blank=True, default='')
     slug = models.SlugField(max_length=80, unique=True)
     hex_code = models.CharField(
         _('hex'),
@@ -322,14 +352,14 @@ class Color(models.Model):
     class Meta:
         verbose_name = _('цвет')
         verbose_name_plural = _('цвета')
-        ordering = ['name']
+        ordering = ['name_ru']
 
     def __str__(self):
-        return self.name
+        return self.name_ru
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.name, allow_unicode=True)
+            self.slug = slugify(self.name_ru, allow_unicode=True)
         super().save(*args, **kwargs)
 
 
@@ -617,7 +647,14 @@ class Review(models.Model):
 
 class ReviewImage(models.Model):
     review = models.ForeignKey(Review, on_delete=models.CASCADE, related_name='images')
-    image = models.ImageField(upload_to='reviews/')
+    image = models.FileField(
+        upload_to='reviews/%Y/%m/%d/',
+        validators=[media_file_validator],
+    )
+
+    @property
+    def media_type(self):
+        return media_type_from_name(self.image.name)
 
 
 class Banner(models.Model):
@@ -626,11 +663,28 @@ class Banner(models.Model):
         MID = 'mid', 'Средний'
         PROMO = 'promo', 'Промо'
 
-    title = models.CharField(_('заголовок'), max_length=200)
-    subtitle = models.CharField(_('подзаголовок'), max_length=300, blank=True)
-    button_text = models.CharField(_('текст кнопки'), max_length=100, blank=True)
-    image = models.ImageField(_('изображение'), upload_to='banners/%Y/%m/%d/')
-    image_mobile = models.ImageField(_('мобильное изображение'), upload_to='banners/%Y/%m/%d/', blank=True, null=True)
+    title_ru = models.CharField(_('заголовок'), max_length=200)
+    title_kz = models.CharField(_('заголовок (каз.)'), max_length=200, blank=True, default='')
+    title_en = models.CharField(_('заголовок (англ.)'), max_length=200, blank=True, default='')
+    subtitle_ru = models.CharField(_('подзаголовок'), max_length=300, blank=True)
+    subtitle_kz = models.CharField(_('подзаголовок (каз.)'), max_length=300, blank=True, default='')
+    subtitle_en = models.CharField(_('подзаголовок (англ.)'), max_length=300, blank=True, default='')
+    button_text_ru = models.CharField(_('текст кнопки'), max_length=100, blank=True)
+    button_text_kz = models.CharField(_('текст кнопки (каз.)'), max_length=100, blank=True, default='')
+    button_text_en = models.CharField(_('текст кнопки (англ.)'), max_length=100, blank=True, default='')
+    # Field names stay unchanged so current frontend integrations remain valid.
+    image = models.FileField(
+        _('медиафайл'),
+        upload_to='banners/%Y/%m/%d/',
+        validators=[media_file_validator],
+    )
+    image_mobile = models.FileField(
+        _('мобильный медиафайл'),
+        upload_to='banners/%Y/%m/%d/',
+        validators=[media_file_validator],
+        blank=True,
+        null=True,
+    )
     link = models.CharField(_('ссылка'), max_length=255, blank=True)
     position = models.CharField(max_length=10, choices=Position.choices, default=Position.HERO)
     is_active = models.BooleanField(_('активен'), default=True)
@@ -650,7 +704,15 @@ class Banner(models.Model):
         ]
 
     def __str__(self):
-        return self.title
+        return self.title_ru
+
+    @property
+    def image_type(self):
+        return media_type_from_name(self.image.name)
+
+    @property
+    def image_mobile_type(self):
+        return media_type_from_name(self.image_mobile.name) if self.image_mobile else None
 
     def clean(self):
         super().clean()

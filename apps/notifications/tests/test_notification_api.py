@@ -97,8 +97,14 @@ class NotificationApiTests(APITestCase):
         item = self.response_results(response)[0]
         self.assertEqual(
             set(item.keys()),
-            {'id', 'title', 'message', 'event_type', 'is_read', 'created_at'},
+            {
+                'id', 'title', 'message', 'event_type', 'is_read',
+                'read_status', 'read_status_labels', 'created_at',
+            },
         )
+        expected_read_status = 'read' if item['is_read'] else 'unread'
+        self.assertEqual(item['read_status'], expected_read_status)
+        self.assertEqual(set(item['read_status_labels']), {'ru', 'kz', 'en'})
 
     def test_user_can_mark_own_notification_as_read(self):
         self.client.force_authenticate(user=self.user)

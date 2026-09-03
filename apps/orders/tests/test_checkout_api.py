@@ -14,11 +14,11 @@ from apps.orders.services import CartService
 
 class CheckoutApiTests(APITestCase):
     def setUp(self):
-        category = Category.objects.create(name='Shoes', slug='checkout-api-shoes')
-        brand = Brand.objects.create(name='Nike', slug='checkout-api-nike')
+        category = Category.objects.create(name_ru='Shoes', slug='checkout-api-shoes')
+        brand = Brand.objects.create(name_ru='Nike', slug='checkout-api-nike')
         self.product = Product.objects.create(
             sku='SKU-CHECKOUT-API',
-            name='Checkout API Product',
+            name_ru='Checkout API Product',
             slug='checkout-api-product',
             category=category,
             brand=brand,

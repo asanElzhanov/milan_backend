@@ -10,7 +10,7 @@ class CategoryAPITests(APITestCase):
 
     def setUp(self):
         self.root = Category.objects.create(
-            name='Shoes',
+            name_ru='Shoes',
             slug='shoes',
             sort_order=1,
             seo_title='Shoes SEO',
@@ -18,19 +18,19 @@ class CategoryAPITests(APITestCase):
             seo_keywords='shoes,sneakers',
         )
         self.child = Category.objects.create(
-            name='Sneakers',
+            name_ru='Sneakers',
             slug='sneakers',
             parent=self.root,
             sort_order=1,
         )
         self.inactive_root = Category.objects.create(
-            name='Archive',
+            name_ru='Archive',
             slug='archive',
             is_active=False,
             sort_order=2,
         )
         self.inactive_child = Category.objects.create(
-            name='Hidden',
+            name_ru='Hidden',
             slug='hidden',
             parent=self.root,
             is_active=False,
@@ -81,6 +81,19 @@ class CategoryAPITests(APITestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]['slug'], 'shoes')
         self.assertEqual([child['slug'] for child in items[0]['children']], ['sneakers'])
+
+    def test_category_tree_roots_ordered_by_sort_order(self):
+        # Создаём корневые категории «не по порядку» создания, но с sort_order,
+        # который должен определить порядок вывода в дереве.
+        Category.objects.create(name_ru='Bags', slug='bags', sort_order=5)
+        Category.objects.create(name_ru='Accessories', slug='accessories', sort_order=3)
+
+        response = self.client.get(self.tree_url, {'active': 'true'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slugs = [item['slug'] for item in self.response_items(response)]
+        # shoes(sort_order=1) < accessories(3) < bags(5)
+        self.assertEqual(slugs, ['shoes', 'accessories', 'bags'])
 
     def test_category_detail_by_slug_returns_category(self):
         response = self.client.get(self.detail_url(self.root))

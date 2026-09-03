@@ -16,7 +16,7 @@ shop_backend/
 │   ├── accounts/            # Пользователи, адреса, избранное, OTP
 │   ├── catalog/             # Категории, товары, отзывы, баннеры, промокоды
 │   ├── orders/              # Корзина + заказы
-│   ├── payments/            # Stripe, Kaspi Pay
+│   ├── payments/            # FreedomPay
 │   └── notifications/       # Email-уведомления (Celery tasks)
 │
 ├── requirements.txt
@@ -53,6 +53,15 @@ shop_backend/
 | GET | `banners/?position=hero` | Баннеры |
 | POST | `promo/check/` | Проверить промокод |
 
+### CMS — `/api/v1/cms/`
+
+| Метод | URL | Описание |
+|-------|-----|----------|
+| GET | `pages/` | Список активных статических страниц |
+| GET | `pages/<slug>/` | Страница с переведёнными упорядоченными блоками |
+
+Подробный контракт для фронтенда: [docs/STATIC_PAGES_FRONTEND_GUIDE.md](docs/STATIC_PAGES_FRONTEND_GUIDE.md).
+
 **Параметры фильтрации** `GET /products/`:
 - `category`, `brand`, `color`, `size`
 - `price_min`, `price_max`
@@ -76,10 +85,9 @@ shop_backend/
 ### Payments — `/api/v1/payments/`
 | Метод | URL | Описание |
 |-------|-----|----------|
-| POST | `stripe/create-intent/` | Создать PaymentIntent |
-| POST | `stripe/webhook/` | Webhook от Stripe |
-| POST | `kaspi/create/` | Ссылка Kaspi Pay |
-| POST | `kaspi/webhook/` | Callback от Kaspi |
+| POST | `freedom/create/` | Инициировать платёж FreedomPay, вернуть `redirect_url` |
+| POST | `freedom/result` | Серверный callback результата оплаты (result_url) |
+| GET | `freedom/status/` | Статус оплаты заказа (для опроса фронтом) |
 
 ### Документация
 - Swagger UI: `/docs/`

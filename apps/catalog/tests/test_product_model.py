@@ -8,15 +8,15 @@ from apps.catalog.models import Brand, Category, Color, Product, ProductVariant,
 
 class ProductModelTests(TestCase):
     def setUp(self):
-        self.category = Category.objects.create(name='Shoes', slug='shoes')
-        self.brand = Brand.objects.create(name='Nike', slug='nike')
-        self.color = Color.objects.create(name='Black', slug='black', hex_code='#000000')
+        self.category = Category.objects.create(name_ru='Shoes', slug='shoes')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='nike')
+        self.color = Color.objects.create(name_ru='Black', slug='black', hex_code='#000000')
         self.size = Size.objects.create(value='42', size_type=Size.SizeType.SHOES)
 
     def make_product(self, **kwargs):
         data = {
             'sku': 'SKU-1',
-            'name': 'Air Max',
+            'name_ru': 'Air Max',
             'category': self.category,
             'brand': self.brand,
             'price': Decimal('100.00'),

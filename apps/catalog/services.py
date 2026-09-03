@@ -9,7 +9,7 @@ from django.utils import timezone
 from apps.accounts.models import User
 from apps.orders.models import Order
 
-from .models import ProductVariant, Review, StockMovement
+from .models import ProductVariant, Review, ReviewImage, StockMovement
 
 
 class InvalidStockQuantityError(ValidationError):
@@ -107,6 +107,19 @@ class ReviewModerationService:
                 'moderation_comment', 'updated_at',
             ])
             ReviewRatingService.recalculate_product_rating(locked_review.product)
+            if old_status != Review.Status.PUBLISHED and status == Review.Status.PUBLISHED:
+                from apps.recommendations.constants import EventSource, EventType, RecommendationContext
+                from apps.recommendations.services import RecommendationEventService
+
+                RecommendationEventService.record_business_event(
+                    event_type=EventType.RATING,
+                    source=EventSource.REVIEW,
+                    user=locked_review.user,
+                    product=locked_review.product,
+                    context=RecommendationContext.PRODUCT,
+                    value=locked_review.rating,
+                    deduplication_key=f'rating:{locked_review.id}',
+                )
             from apps.notifications.services import EmailNotificationService
 
             if old_status == status:
@@ -144,8 +157,9 @@ class ProductReviewService:
         return True
 
     @classmethod
-    def create_review(cls, *, user, product, order, rating, text=''):
+    def create_review(cls, *, user, product, order, rating, text='', media_files=None):
         rating = cls._validate_rating(rating)
+        media_files = media_files or []
         with transaction.atomic():
             cls.can_review_product(user, product, order)
             try:
@@ -162,6 +176,10 @@ class ProductReviewService:
                 raise DuplicateReviewError(
                     'Вы уже оставили отзыв на этот товар в рамках этого заказа.'
                 ) from exc
+            ReviewImage.objects.bulk_create([
+                ReviewImage(review=review, image=media_file)
+                for media_file in media_files
+            ])
             from apps.notifications.services import NotificationService
 
             transaction.on_commit(lambda: NotificationService.notify_new_review(review))

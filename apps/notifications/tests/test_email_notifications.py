@@ -27,11 +27,11 @@ from apps.catalog.services import ReviewModerationService
 class EmailNotificationTaskTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(email='customer@example.com')
-        self.category = Category.objects.create(name='Shoes', slug='email-shoes')
-        self.brand = Brand.objects.create(name='Nike', slug='email-nike')
+        self.category = Category.objects.create(name_ru='Shoes', slug='email-shoes')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='email-nike')
         self.product = Product.objects.create(
             sku='SKU-EMAIL',
-            name='Email Product',
+            name_ru='Email Product',
             slug='email-product',
             category=self.category,
             brand=self.brand,
@@ -66,7 +66,7 @@ class EmailNotificationTaskTests(TestCase):
         OrderItem.objects.create(
             order=order,
             variant=self.variant,
-            product_name=self.product.name,
+            product_name=self.product.name_ru,
             product_slug=self.product.slug,
             sku=self.variant.sku,
             unit_price=Decimal('100.00'),
@@ -133,7 +133,7 @@ class EmailNotificationTaskTests(TestCase):
 
         self.assertEqual(len(mail.outbox), 2)
         bodies = '\n'.join(email.body for email in mail.outbox)
-        self.assertIn(self.product.name, bodies)
+        self.assertIn(self.product.name_ru, bodies)
         self.assertIn('опубликован', bodies)
         self.assertIn('отклонён', bodies)
         self.assertIn('Thank you', bodies)

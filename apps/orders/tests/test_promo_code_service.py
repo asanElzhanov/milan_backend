@@ -30,11 +30,11 @@ from apps.orders.services import (
 
 class PromoCodeServiceTests(TestCase):
     def setUp(self):
-        self.category = Category.objects.create(name='Promo Shoes', slug='promo-shoes')
-        self.brand = Brand.objects.create(name='Promo Brand', slug='promo-brand')
+        self.category = Category.objects.create(name_ru='Promo Shoes', slug='promo-shoes')
+        self.brand = Brand.objects.create(name_ru='Promo Brand', slug='promo-brand')
         self.product = Product.objects.create(
             sku='SKU-PROMO-SERVICE',
-            name='Promo Product',
+            name_ru='Promo Product',
             slug='promo-product',
             category=self.category,
             brand=self.brand,

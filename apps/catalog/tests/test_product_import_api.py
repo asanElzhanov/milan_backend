@@ -85,6 +85,11 @@ class ProductImportApiTests(APITestCase):
         schedule_import.assert_called_once_with(import_job.id)
         self.assertEqual(response.data['id'], import_job.id)
         self.assertEqual(response.data['status'], ImportJob.Status.PENDING)
+        self.assertEqual(response.data['status_labels'], {
+            'ru': 'Ожидает обработки',
+            'kz': 'Өңдеуді күтуде',
+            'en': 'Pending processing',
+        })
         self.assertEqual(response.data['created_by']['email'], self.manager.email)
 
     def test_upload_does_not_process_csv_synchronously(self):

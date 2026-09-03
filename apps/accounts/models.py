@@ -51,11 +51,16 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     date_joined = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    password_changed_at = models.DateTimeField(_('пароль изменён'), null=True, blank=True)
 
     objects = UserManager()
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
+
+    def set_password(self, raw_password):
+        super().set_password(raw_password)
+        self.password_changed_at = timezone.now()
 
     class Meta:
         verbose_name = _('пользователь')
@@ -169,6 +174,10 @@ class Wishlist(models.Model):
         verbose_name = _('избранное')
         verbose_name_plural = _('избранное')
         unique_together = ('user', 'product')
+        indexes = [
+            models.Index(fields=['user', 'added_at'], name='acct_wish_user_added_idx'),
+            models.Index(fields=['product', 'added_at'], name='acct_wish_prod_added_idx'),
+        ]
 
 
 class OTPCode(models.Model):

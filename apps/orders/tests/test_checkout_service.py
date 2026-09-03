@@ -12,13 +12,13 @@ from apps.orders.services import CheckoutService, EmptyCartError, InvalidCheckou
 
 class CheckoutServiceTests(TestCase):
     def setUp(self):
-        self.category = Category.objects.create(name='Shoes', slug='checkout-shoes')
-        self.brand = Brand.objects.create(name='Nike', slug='checkout-nike')
-        self.color = Color.objects.create(name='Black', slug='checkout-black', hex_code='#000000')
+        self.category = Category.objects.create(name_ru='Shoes', slug='checkout-shoes')
+        self.brand = Brand.objects.create(name_ru='Nike', slug='checkout-nike')
+        self.color = Color.objects.create(name_ru='Black', slug='checkout-black', hex_code='#000000')
         self.size = Size.objects.create(value='42', size_type=Size.SizeType.SHOES, sort_order=1)
         self.product = Product.objects.create(
             sku='SKU-CHECKOUT',
-            name='Checkout Product',
+            name_ru='Checkout Product',
             slug='checkout-product',
             category=self.category,
             brand=self.brand,
@@ -208,7 +208,7 @@ class CheckoutServiceTests(TestCase):
         cart = self.create_cart()
 
         order = self.checkout(cart)
-        self.courier_delivery.name = 'Changed courier'
+        self.courier_delivery.name_ru = 'Changed courier'
         self.courier_delivery.code = 'changed-courier'
         self.courier_delivery.base_price = Decimal('9999.00')
         self.courier_delivery.save(update_fields=['name', 'code', 'base_price', 'updated_at'])

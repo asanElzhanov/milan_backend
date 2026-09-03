@@ -1,16 +1,27 @@
+import logging
 from decimal import Decimal
 from urllib.parse import urlencode
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.core.exceptions import PermissionDenied
 from django.db.models import Count, DecimalField, Max, Q, Sum, Value
 from django.db.models.functions import Coalesce
-from django.urls import reverse
+from django.shortcuts import get_object_or_404, redirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
+from django.utils.crypto import get_random_string
 from django.utils.html import format_html
 
 from apps.orders.models import Order
 
 from .models import Address, CustomerProfile, OTPCode, User
+
+
+logger = logging.getLogger(__name__)
+
+# Символы для генерируемого пароля (без похожих 0/O, 1/l/I).
+_RANDOM_PASSWORD_CHARS = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
 
 def _is_manager(user):
@@ -43,10 +54,12 @@ class UserAdmin(BaseUserAdmin):
     list_filter = ('role', 'is_active', 'is_staff', 'is_superuser', 'is_email_verified')
     search_fields = ('email', 'phone', 'first_name', 'last_name')
     ordering = ('-date_joined',)
-    readonly_fields = ('last_login', 'date_joined', 'updated_at')
+    readonly_fields = (
+        'last_login', 'date_joined', 'updated_at', 'password_changed_at', 'reset_password_button',
+    )
     inlines = (CustomerProfileInline,)
     fieldsets = (
-        (None, {'fields': ('email', 'password')}),
+        (None, {'fields': ('email', 'password', 'reset_password_button')}),
         ('Personal info', {'fields': ('first_name', 'last_name', 'phone', 'avatar')}),
         ('Permissions', {
             'fields': (
@@ -54,7 +67,7 @@ class UserAdmin(BaseUserAdmin):
                 'is_email_verified', 'groups', 'user_permissions',
             )
         }),
-        ('Important dates', {'fields': ('last_login', 'date_joined', 'updated_at')}),
+        ('Important dates', {'fields': ('last_login', 'date_joined', 'updated_at', 'password_changed_at')}),
     )
     add_fieldsets = (
         (None, {
@@ -62,6 +75,80 @@ class UserAdmin(BaseUserAdmin):
             'fields': ('email', 'phone', 'password1', 'password2', 'role', 'is_staff', 'is_superuser'),
         }),
     )
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                '<int:user_id>/reset-password/',
+                self.admin_site.admin_view(self.reset_password_view),
+                name='accounts_user_reset_password',
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    @admin.display(description='Пароль')
+    def reset_password_button(self, obj):
+        if obj is None or obj.pk is None:
+            return 'Доступно после сохранения пользователя.'
+        url = reverse('admin:accounts_user_reset_password', args=[obj.pk])
+        return format_html(
+            '<a class="button" href="{}">Сбросить пароль</a>'
+            '<p class="help" style="margin-top:6px">'
+            'Сгенерирует случайный пароль и отправит его пользователю на email.'
+            '</p>',
+            url,
+        )
+
+    def reset_password_view(self, request, user_id):
+        user = get_object_or_404(User, pk=user_id)
+        if not self.has_change_permission(request, user):
+            raise PermissionDenied
+
+        if request.method == 'POST':
+            if not user.email:
+                self.message_user(
+                    request,
+                    'У пользователя не указан email — новый пароль отправить некуда.',
+                    level=messages.ERROR,
+                )
+                return redirect(reverse('admin:accounts_user_change', args=[user.pk]))
+
+            new_password = get_random_string(12, allowed_chars=_RANDOM_PASSWORD_CHARS)
+            user.set_password(new_password)
+            user.save(update_fields=['password', 'password_changed_at', 'updated_at'])
+
+            from apps.notifications.tasks import send_admin_password_reset_email
+
+            try:
+                send_admin_password_reset_email.delay(user.pk, new_password)
+                logger.info(
+                    'Admin password reset email enqueued for user_id=%s email=%s '
+                    '(a Celery worker must process the "notifications.send_admin_password_reset_email" task)',
+                    user.pk,
+                    user.email,
+                )
+            except Exception:
+                logger.exception('Failed to enqueue admin password reset email for user_id=%s', user.pk)
+                self.message_user(
+                    request,
+                    f'Пароль пользователя {user.email} сброшен, но письмо не удалось поставить в очередь.',
+                    level=messages.WARNING,
+                )
+            else:
+                self.message_user(
+                    request,
+                    f'Пароль пользователя {user.email} сброшен и отправлен на email.',
+                    level=messages.SUCCESS,
+                )
+            return redirect(reverse('admin:accounts_user_change', args=[user.pk]))
+
+        context = {
+            **self.admin_site.each_context(request),
+            'title': 'Сбросить пароль',
+            'target_user': user,
+            'opts': self.model._meta,
+        }
+        return TemplateResponse(request, 'admin/accounts/user/reset_password_confirm.html', context)
 
 
 @admin.register(CustomerProfile)

@@ -7,7 +7,7 @@ from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 from rest_framework import filters, generics, permissions, status
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -128,7 +128,16 @@ class CategoryTreeView(CategoryQuerysetMixin, generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        return super().get_queryset().filter(level=0).prefetch_related('children')
+        # Корневые категории сортируем по заданному порядку (sort_order), а не по
+        # порядку создания (tree_id). Дочерние категории упорядочиваются
+        # Meta.ordering модели (sort_order, name_ru) при обходе в сериализаторе.
+        return (
+            super()
+            .get_queryset()
+            .filter(level=0)
+            .order_by('sort_order', 'name_ru')
+            .prefetch_related('children')
+        )
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -177,7 +186,7 @@ class BrandListView(ActiveFilterMixin, generics.ListAPIView):
 
     def get_queryset(self):
         queryset = self.filter_by_active(Brand.objects.all())
-        return queryset.order_by('name')
+        return queryset.order_by('name_ru')
 
     @extend_schema(
         tags=['Catalog / Brands'],
@@ -212,7 +221,7 @@ class ColorListView(ActiveFilterMixin, generics.ListAPIView):
 
     def get_queryset(self):
         queryset = self.filter_by_active(Color.objects.all())
-        return queryset.order_by('name')
+        return queryset.order_by('name_ru')
 
     @extend_schema(
         tags=['Catalog / Colors'],
@@ -262,8 +271,11 @@ class ProductListView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, ProductOrderingFilter]
     filterset_class = ProductFilter
-    search_fields = ['name', 'brand__name', 'variants__sku']
-    ordering_fields = ['price', 'created_at', 'name']
+    search_fields = [
+        'name_ru', 'name_kz', 'name_en',
+        'brand__name_ru', 'brand__name_kz', 'brand__name_en', 'variants__sku',
+    ]
+    ordering_fields = ['price', 'created_at', 'name_ru']
     ordering = ['-created_at']
 
     def get_queryset(self):
@@ -336,6 +348,7 @@ class ProductDetailView(generics.RetrieveAPIView):
                 'reviews',
                 queryset=Review.objects.filter(status=Review.Status.PUBLISHED)
                 .select_related('user')
+                .prefetch_related('images')
                 .order_by('-created_at'),
                 to_attr='approved_reviews',
             ),
@@ -363,9 +376,11 @@ class StockVariantListView(generics.ListAPIView):
     permission_classes = [IsManagerOrAdmin]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = StockVariantFilter
-    search_fields = ['sku', 'product__name', 'product__slug']
-    ordering_fields = ['stock_quantity', 'sku', 'product__name']
-    ordering = ['product__name', 'sku']
+    search_fields = [
+        'sku', 'product__name_ru', 'product__name_kz', 'product__name_en', 'product__slug',
+    ]
+    ordering_fields = ['stock_quantity', 'sku', 'product__name_ru']
+    ordering = ['product__name_ru', 'sku']
 
     def get_queryset(self):
         return ProductVariant.objects.select_related(
@@ -400,7 +415,11 @@ class StockMovementListView(generics.ListAPIView):
     permission_classes = [IsManagerOrAdmin]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = StockMovementFilter
-    search_fields = ['variant__sku', 'variant__product__name', 'variant__product__slug', 'comment']
+    search_fields = [
+        'variant__sku',
+        'variant__product__name_ru', 'variant__product__name_kz', 'variant__product__name_en',
+        'variant__product__slug', 'comment',
+    ]
     ordering_fields = ['created_at', 'operation_type', 'quantity']
     ordering = ['-created_at']
 
@@ -607,22 +626,19 @@ class ProductSimilarView(generics.ListAPIView):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Product.objects.none()
+        from apps.recommendations.constants import RecommendationContext
+        from apps.recommendations.services import ProductEligibilityService, RecommendationService
+
         product = get_object_or_404(
             Product.objects.filter(is_active=True),
             slug=self.kwargs['slug'],
         )
-        queryset = with_product_list_annotations(
-            Product.objects.filter(category=product.category, is_active=True)
-            .select_related('category', 'brand')
-            .exclude(pk=product.pk)
+        product_ids = RecommendationService.similar_product_ids(product, limit=8)
+        return ProductEligibilityService.hydrate(
+            product_ids,
+            context=RecommendationContext.PRODUCT,
+            exclude_ids={product.id},
         )
-        return queryset.prefetch_related(
-            Prefetch('images', queryset=ProductImage.objects.order_by('sort_order', 'id')),
-            Prefetch(
-                'variants',
-                queryset=ProductVariant.objects.filter(is_active=True).select_related('color', 'size'),
-            ),
-        ).order_by('-orders_count')[:8]
 
     @extend_schema(
         tags=['Catalog / Products'],
@@ -644,7 +660,7 @@ class ProductReviewListView(generics.ListAPIView):
         return Review.objects.filter(
             product__slug=self.kwargs['slug'],
             status=Review.Status.PUBLISHED,
-        ).select_related('user', 'product', 'order').order_by('-created_at')
+        ).select_related('user', 'product', 'order').prefetch_related('images').order_by('-created_at')
 
     @extend_schema(
         tags=['Catalog / Reviews'],
@@ -659,9 +675,10 @@ class ReviewCreateView(generics.CreateAPIView):
     """POST /catalog/reviews/"""
     serializer_class = ReviewCreateSerializer
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_queryset(self):
-        return Review.objects.select_related('product', 'user', 'order')
+        return Review.objects.select_related('product', 'user', 'order').prefetch_related('images')
 
     @extend_schema(
         tags=['Catalog / Reviews'],
@@ -670,7 +687,36 @@ class ReviewCreateView(generics.CreateAPIView):
         responses={201: ReviewSerializer, 400: OpenApiResponse(description='Ошибка валидации')},
     )
     def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        review = serializer.save()
+        review = self.get_queryset().get(pk=review.pk)
+        response_serializer = ReviewSerializer(review, context=self.get_serializer_context())
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class MyReviewListView(generics.ListAPIView):
+    """GET /catalog/reviews/mine/"""
+    serializer_class = ReviewSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Review.objects.none()
+        return (
+            Review.objects.filter(user=self.request.user)
+            .select_related('product', 'user', 'order')
+            .prefetch_related('images')
+            .order_by('-created_at')
+        )
+
+    @extend_schema(
+        tags=['Catalog / Reviews'],
+        summary='Мои отзывы',
+        responses={200: ReviewSerializer(many=True)},
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 
 class BannerListView(generics.ListAPIView):
