@@ -760,11 +760,13 @@ class PromoCheckView(APIView):
         serializer.is_valid(raise_exception=True)
         promo_code = serializer.validated_data['promo_code']
         amount = serializer.validated_data['order_amount']
-        discount = PromoCodeService.calculate_discount(promo_code, amount)
+        discount = PromoCodeService.calculate_discount(
+            promo_code, amount, total_quantity=serializer.validated_data.get('total_quantity'),
+        )
         return Response({
             'code': promo_code.code,
             'discount_type': promo_code.discount_type,
-            'discount_value': str(promo_code.value),
+            'discount_value': str(serializer.validated_data['discount_value']),
             'discount_amount': str(discount),
             'final_amount': str(amount - discount),
         })

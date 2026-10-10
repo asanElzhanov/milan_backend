@@ -3,10 +3,11 @@ from decimal import Decimal
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.forms.models import BaseInlineFormSet
 
 from .models import (
     Cart, DeliveryMethod, Order, OrderItem, OrderStatusHistory,
-    PromoCode, PromoCodeUsage,
+    PromoCode, PromoCodeTier, PromoCodeUsage,
 )
 from .services import OrderStatusService
 
@@ -296,6 +297,34 @@ class PromoCodeUsageInline(admin.TabularInline):
         return False
 
 
+class PromoCodeTierFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        tiers = [
+            form.cleaned_data for form in self.forms
+            if form.cleaned_data and not form.cleaned_data.get('DELETE')
+        ]
+        if self.instance.discount_type != PromoCode.DiscountType.TIERED:
+            if tiers:
+                raise ValidationError('Ступени можно задать только для скидки по количеству товаров.')
+            return
+        if not tiers and self.instance.pk:
+            raise ValidationError('Добавьте хотя бы одну ступень скидки.')
+
+
+class PromoCodeTierInline(admin.TabularInline):
+    model = PromoCodeTier
+    formset = PromoCodeTierFormSet
+    extra = 3
+    fields = ('min_quantity', 'percent')
+    verbose_name_plural = (
+        'Ступени скидки: применяется процент для наибольшего достигнутого количества. '
+        'Для нового промокода пустые строки создадут 1 → 10%, 2 → 15%, 3 и более → 20%.'
+    )
+
+
 class PromoCodeAdminForm(forms.ModelForm):
     class Meta:
         model = PromoCode
@@ -312,6 +341,10 @@ class PromoCodeAdminForm(forms.ModelForm):
         valid_from = cleaned_data.get('valid_from')
         valid_until = cleaned_data.get('valid_until')
 
+        if discount_type == PromoCode.DiscountType.TIERED:
+            cleaned_data['value'] = None
+        elif value is None:
+            self.add_error('value', 'Укажите значение скидки.')
         if value is not None and value <= Decimal('0.00'):
             self.add_error('value', 'Значение скидки должно быть больше нуля.')
         if (
@@ -343,7 +376,19 @@ class PromoCodeAdmin(admin.ModelAdmin):
     search_fields = ('code',)
     readonly_fields = ('used_count', 'remaining_uses', 'created_at', 'updated_at')
     ordering = ('-created_at',)
-    inlines = [PromoCodeUsageInline]
+    inlines = [PromoCodeTierInline, PromoCodeUsageInline]
+
+    def save_formset(self, request, form, formset, change):
+        super().save_formset(request, form, formset, change)
+        if (
+            formset.model is PromoCodeTier
+            and form.instance.discount_type == PromoCode.DiscountType.TIERED
+            and not form.instance.tiers.exists()
+        ):
+            PromoCodeTier.objects.bulk_create([
+                PromoCodeTier(promo_code=form.instance, min_quantity=quantity, percent=percent)
+                for quantity, percent in [(1, 10), (2, 15), (3, 20)]
+            ])
 
     @admin.display(description='остаток использований')
     def remaining_uses(self, obj):

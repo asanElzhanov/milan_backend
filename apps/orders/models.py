@@ -3,7 +3,7 @@ import uuid
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.utils.crypto import get_random_string
@@ -168,6 +168,7 @@ class PromoCode(models.Model):
     class DiscountType(models.TextChoices):
         PERCENT = 'percent', _('Процент')
         FIXED = 'fixed', _('Фиксированная сумма')
+        TIERED = 'tiered', _('Процент по количеству товаров')
 
     code = models.CharField(_('код'), max_length=50, unique=True)
     discount_type = models.CharField(
@@ -179,7 +180,10 @@ class PromoCode(models.Model):
         _('значение скидки'),
         max_digits=10,
         decimal_places=2,
+        null=True,
+        blank=True,
         validators=[MinValueValidator(Decimal('0.01'))],
+        help_text=_('Для скидки по количеству товаров оставьте пустым и настройте ступени ниже.'),
     )
     min_order_amount = models.DecimalField(
         _('минимальная сумма заказа'),
@@ -209,11 +213,11 @@ class PromoCode(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                check=Q(value__gt=Decimal('0.00')),
+                check=Q(discount_type='tiered') | (Q(value__isnull=False) & Q(value__gt=Decimal('0.00'))),
                 name='promo_code_value_positive',
             ),
             models.CheckConstraint(
-                check=Q(discount_type='fixed') | Q(value__lte=Decimal('100.00')),
+                check=Q(discount_type__in=['fixed', 'tiered']) | Q(value__lte=Decimal('100.00')),
                 name='promo_code_percent_value_lte_100',
             ),
             models.CheckConstraint(
@@ -242,7 +246,9 @@ class PromoCode(models.Model):
         errors = {}
         if self.code:
             self.code = self.code.strip().upper()
-        if self.value is not None and self.value <= Decimal('0.00'):
+        if self.discount_type != self.DiscountType.TIERED and self.value is None:
+            errors['value'] = _('Укажите значение скидки.')
+        elif self.value is not None and self.value <= Decimal('0.00'):
             errors['value'] = _('Значение скидки должно быть больше нуля.')
         if (
             self.discount_type == self.DiscountType.PERCENT
@@ -267,6 +273,35 @@ class PromoCode(models.Model):
         if self.code:
             self.code = self.code.strip().upper()
         super().save(*args, **kwargs)
+
+
+class PromoCodeTier(models.Model):
+    promo_code = models.ForeignKey(
+        PromoCode, on_delete=models.CASCADE, related_name='tiers', verbose_name=_('промокод'),
+    )
+    min_quantity = models.PositiveIntegerField(
+        _('количество товаров от'), validators=[MinValueValidator(1)],
+        help_text=_('Считается сумма количества всех товаров в корзине.'),
+    )
+    percent = models.DecimalField(
+        _('скидка, %'), max_digits=5, decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01')), MaxValueValidator(Decimal('100.00'))],
+    )
+
+    class Meta:
+        verbose_name = _('ступень скидки')
+        verbose_name_plural = _('ступени скидки по количеству товаров')
+        ordering = ['min_quantity']
+        constraints = [
+            models.UniqueConstraint(fields=['promo_code', 'min_quantity'], name='promo_tier_unique_quantity'),
+            models.CheckConstraint(check=Q(min_quantity__gte=1), name='promo_tier_quantity_positive'),
+            models.CheckConstraint(
+                check=Q(percent__gt=0) & Q(percent__lte=100), name='promo_tier_percent_range',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.min_quantity}+ → {self.percent}%'
 
 
 class PromoCodeUsage(models.Model):

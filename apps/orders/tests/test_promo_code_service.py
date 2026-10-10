@@ -14,12 +14,14 @@ from apps.orders.models import (
     DeliveryMethod,
     Order,
     PromoCode,
+    PromoCodeTier,
     PromoCodeUsage,
 )
 from apps.orders.services import (
     CartService,
     CheckoutService,
     PromoCodeExpiredError,
+    PromoCodeError,
     PromoCodeInactiveError,
     PromoCodeMinAmountError,
     PromoCodeNotStartedError,
@@ -125,6 +127,67 @@ class PromoCodeServiceTests(TestCase):
         discount = PromoCodeService.calculate_discount(promo_code, Decimal('240.00'))
 
         self.assertEqual(discount, Decimal('30.00'))
+
+    def create_tiered_promo(self):
+        promo = self.create_promo_code(discount_type=PromoCode.DiscountType.TIERED, value=None)
+        for quantity, percent in [(1, 10), (2, 15), (3, 20)]:
+            PromoCodeTier.objects.create(promo_code=promo, min_quantity=quantity, percent=percent)
+        return promo
+
+    def test_quantity_discount_boundaries_and_rounding(self):
+        promo = self.create_tiered_promo()
+        for quantity, expected in [(0, '0.00'), (1, '12.00'), (2, '18.00'), (3, '24.00'), (8, '24.00')]:
+            with self.subTest(quantity=quantity):
+                self.assertEqual(
+                    PromoCodeService.calculate_discount(promo, Decimal('120.00'), total_quantity=quantity),
+                    Decimal(expected),
+                )
+        self.assertEqual(
+            PromoCodeService.calculate_discount(promo, Decimal('99.99'), total_quantity=2),
+            Decimal('15.00'),
+        )
+
+    def test_edited_quantity_and_percent_take_effect(self):
+        promo = self.create_tiered_promo()
+        promo.tiers.filter(min_quantity=2).update(min_quantity=5, percent=Decimal('25.50'))
+        promo.tiers.filter(min_quantity=3).delete()
+        for quantity, expected in [(4, '10.00'), (5, '25.50'), (10, '25.50')]:
+            with self.subTest(quantity=quantity):
+                self.assertEqual(
+                    PromoCodeService.calculate_discount(promo, Decimal('100.00'), total_quantity=quantity),
+                    Decimal(expected),
+                )
+
+    def test_tiered_promo_requires_quantity_and_configuration(self):
+        promo = self.create_promo_code(discount_type=PromoCode.DiscountType.TIERED, value=None)
+        with self.assertRaises(PromoCodeError):
+            PromoCodeService.calculate_discount(promo, Decimal('100.00'))
+        with self.assertRaises(PromoCodeError):
+            PromoCodeService.calculate_discount(promo, Decimal('100.00'), total_quantity=1)
+
+    def test_tiered_cart_counts_units_across_multiple_lines(self):
+        self.create_tiered_promo()
+        other_variant = ProductVariant.objects.create(
+            product=self.product, sku='VAR-PROMO-SECOND', stock_quantity=5, variant_price=Decimal('60.00'),
+        )
+        CartItem.objects.create(cart=self.cart, variant=other_variant, quantity=1)
+        result = PromoCodeService.apply_to_cart(self.cart, 'PROMO10', user=self.user)
+        self.assertEqual(result['subtotal'], Decimal('300.00'))
+        self.assertEqual(result['discount_amount'], Decimal('60.00'))
+
+    def test_checkout_recalculates_tier_and_preserves_order_discount_after_edit(self):
+        promo = self.create_tiered_promo()
+        self.cart = CartService.apply_promo_code(self.cart, promo.code, user=self.user)
+        self.assertEqual(CartService.recalculate_cart(self.cart)['discount_amount'], Decimal('36.00'))
+        self.cart.items.update(quantity=3)
+        order = self.checkout(promo.code)
+        self.assertEqual(order.discount_amount, Decimal('72.00'))
+        self.assertEqual(order.total_amount, Decimal('1288.00'))
+        promo.tiers.filter(min_quantity=3).update(percent=Decimal('50.00'))
+        order.refresh_from_db()
+        promo.refresh_from_db()
+        self.assertEqual(order.discount_amount, Decimal('72.00'))
+        self.assertEqual(promo.used_count, 1)
 
     def test_fixed_discount_is_calculated(self):
         promo_code = self.create_promo_code(

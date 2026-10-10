@@ -705,11 +705,17 @@ class BannerSerializer(serializers.ModelSerializer):
 class PromoCheckSerializer(serializers.Serializer):
     code = serializers.CharField()
     order_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    total_quantity = serializers.IntegerField(min_value=1, required=False)
 
     def validate(self, data):
         try:
             promo_code = PromoCodeService.get_active_promo(data['code'])
             PromoCodeService.validate_promo(promo_code, data['order_amount'])
+            if promo_code.discount_type == 'tiered' and 'total_quantity' not in data:
+                raise serializers.ValidationError({'total_quantity': 'Укажите количество товаров.'})
+            data['discount_value'] = PromoCodeService.get_discount_value(
+                promo_code, total_quantity=data.get('total_quantity'),
+            )
         except PromoCodeError as exc:
             detail = exc.messages[0] if hasattr(exc, 'messages') and exc.messages else str(exc)
             raise serializers.ValidationError({'code': detail}) from exc

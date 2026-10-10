@@ -323,7 +323,9 @@ class CartService:
             try:
                 promo_code = cart.promo_code
                 PromoCodeService.validate_promo(promo_code, subtotal, user=cart.user)
-                discount_amount = PromoCodeService.calculate_discount(promo_code, subtotal)
+                discount_amount = PromoCodeService.calculate_discount(
+                    promo_code, subtotal, total_quantity=total_quantity,
+                )
                 total = max(subtotal - discount_amount, Decimal('0.00'))
             except PromoCodeError:
                 promo_code = None
@@ -552,13 +554,26 @@ class PromoCodeService:
         return promo_code
 
     @classmethod
-    def calculate_discount(cls, promo_code, subtotal):
+    def get_discount_value(cls, promo_code, *, total_quantity=None):
+        if promo_code.discount_type != PromoCode.DiscountType.TIERED:
+            return promo_code.value
+        if total_quantity is None:
+            raise PromoCodeError('Укажите количество товаров для расчета скидки.')
+        tiers = list(promo_code.tiers.all())
+        if not tiers:
+            raise PromoCodeError('Для промокода не настроены ступени скидки.')
+        eligible = [tier for tier in tiers if tier.min_quantity <= total_quantity]
+        return max(eligible, key=lambda tier: tier.min_quantity).percent if eligible else Decimal('0.00')
+
+    @classmethod
+    def calculate_discount(cls, promo_code, subtotal, *, total_quantity=None):
         subtotal = cls._normalize_money(subtotal)
         if subtotal <= Decimal('0.00'):
             return Decimal('0.00')
 
-        if promo_code.discount_type == PromoCode.DiscountType.PERCENT:
-            discount = subtotal * promo_code.value / Decimal('100')
+        value = cls.get_discount_value(promo_code, total_quantity=total_quantity)
+        if promo_code.discount_type in (PromoCode.DiscountType.PERCENT, PromoCode.DiscountType.TIERED):
+            discount = subtotal * value / Decimal('100')
         elif promo_code.discount_type == PromoCode.DiscountType.FIXED:
             discount = promo_code.value
         else:
@@ -573,18 +588,23 @@ class PromoCodeService:
         totals = CartService.recalculate_cart(cart)
         subtotal = cls._normalize_money(totals['subtotal'])
         cls.validate_promo(promo_code, subtotal, user=user)
-        discount_amount = cls.calculate_discount(promo_code, subtotal)
+        discount_amount = cls.calculate_discount(
+            promo_code, subtotal, total_quantity=totals['total_quantity'],
+        )
         return cls._build_result(promo_code, subtotal, discount_amount)
 
     @classmethod
-    def apply_to_checkout(cls, cart, code, user=None, subtotal=None):
+    def apply_to_checkout(cls, cart, code, user=None, subtotal=None, total_quantity=None):
         promo_code = cls.get_active_promo(code, for_update=True)
-        if subtotal is None:
+        if subtotal is None or total_quantity is None:
             totals = CartService.recalculate_cart(cart)
-            subtotal = totals['subtotal']
+            if subtotal is None:
+                subtotal = totals['subtotal']
+            if total_quantity is None:
+                total_quantity = totals['total_quantity']
         subtotal = cls._normalize_money(subtotal)
         cls.validate_promo(promo_code, subtotal, user=user)
-        discount_amount = cls.calculate_discount(promo_code, subtotal)
+        discount_amount = cls.calculate_discount(promo_code, subtotal, total_quantity=total_quantity)
         return cls._build_result(promo_code, subtotal, discount_amount)
 
     @classmethod
@@ -705,6 +725,7 @@ class CheckoutService:
                     code=effective_promo_code,
                     user=user,
                     subtotal=items_subtotal,
+                    total_quantity=sum(item.quantity for item in items),
                 )
                 discount_amount = promo_code_data['discount_amount']
             total_amount = items_subtotal - discount_amount + delivery.delivery_price

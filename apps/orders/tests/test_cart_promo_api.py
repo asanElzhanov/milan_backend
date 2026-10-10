@@ -7,7 +7,7 @@ from rest_framework.test import APITestCase
 
 from apps.accounts.models import User
 from apps.catalog.models import Brand, Category, Product, ProductVariant
-from apps.orders.models import PromoCode
+from apps.orders.models import PromoCode, PromoCodeTier
 from apps.orders.services import CartService
 
 
@@ -108,6 +108,28 @@ class CartPromoApiTests(APITestCase):
         self.assertEqual(response.data['promo_code'], 'PROMO10')
         self.assertEqual(response.data['discount_amount'], '50.00')
         self.assertEqual(response.data['total_after_discount'], '190.00')
+
+    def test_guest_quantity_changes_recalculate_tiered_discount(self):
+        promo = self.create_promo_code(discount_type=PromoCode.DiscountType.TIERED, value=None)
+        for quantity, percent in [(1, 10), (2, 15), (3, 20)]:
+            PromoCodeTier.objects.create(promo_code=promo, min_quantity=quantity, percent=percent)
+        token = self.create_guest_cart(quantity=1)
+        response = self.client.post(
+            self.apply_url(), {'code': promo.code}, format='json', **self.auth_headers(token),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['discount_amount'], '12.00')
+        item_id = response.data['items'][0]['id']
+        for quantity, discount in [(2, '36.00'), (3, '72.00'), (4, '96.00'), (1, '12.00')]:
+            with self.subTest(quantity=quantity):
+                response = self.client.patch(
+                    f'{self.items_url()}{item_id}/', {'quantity': quantity},
+                    format='json', **self.auth_headers(token),
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.data['promo_code'], promo.code)
+                self.assertEqual(response.data['discount_amount'], discount)
+
 
     def test_inactive_promo_code_is_rejected(self):
         self.create_promo_code(is_active=False)

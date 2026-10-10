@@ -6,10 +6,32 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.accounts.models import User
-from apps.orders.models import Order, PromoCode, PromoCodeUsage
+from apps.orders.models import Order, PromoCode, PromoCodeTier, PromoCodeUsage
 
 
 class PromoCodeModelTests(TestCase):
+    def test_tiered_promo_does_not_require_flat_value(self):
+        promo = PromoCode(code='TIERS', discount_type=PromoCode.DiscountType.TIERED)
+        promo.full_clean()
+        promo.save()
+        self.assertIsNone(promo.value)
+
+    def test_flat_promo_requires_value(self):
+        promo = PromoCode(code='NO-VALUE', discount_type=PromoCode.DiscountType.PERCENT)
+        with self.assertRaises(ValidationError):
+            promo.full_clean()
+
+    def test_tier_rejects_invalid_quantity_percent_and_duplicate_threshold(self):
+        promo = PromoCode.objects.create(code='TIERS', discount_type=PromoCode.DiscountType.TIERED)
+        for quantity, percent in [(0, 10), (1, 0), (1, -1), (1, 101)]:
+            with self.subTest(quantity=quantity, percent=percent):
+                tier = PromoCodeTier(promo_code=promo, min_quantity=quantity, percent=percent)
+                with self.assertRaises(ValidationError):
+                    tier.full_clean()
+        PromoCodeTier.objects.create(promo_code=promo, min_quantity=1, percent=10)
+        with self.assertRaises(ValidationError):
+            PromoCodeTier(promo_code=promo, min_quantity=1, percent=15).full_clean()
+
     def test_save_normalizes_code_to_uppercase(self):
         promo_code = PromoCode.objects.create(
             code=' summer10 ',

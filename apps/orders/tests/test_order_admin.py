@@ -12,7 +12,7 @@ from apps.orders.admin import (
 )
 from apps.orders.models import (
     Cart, CartItem, Order, OrderItem, OrderStatusHistory,
-    PromoCode, PromoCodeUsage,
+    PromoCode, PromoCodeTier, PromoCodeUsage,
 )
 from apps.orders.services import CheckoutService
 
@@ -347,6 +347,81 @@ class PromoCodeAdminTests(TestCase):
             sku='VAR-PROMO-ADMIN',
             stock_quantity=5,
         )
+
+    def tiered_payload(self, rows=(), initial=0):
+        payload = {
+            'code': 'TIERS', 'discount_type': PromoCode.DiscountType.TIERED,
+            'value': '', 'is_active': 'on',
+            'tiers-TOTAL_FORMS': str(len(rows)), 'tiers-INITIAL_FORMS': str(initial),
+            'tiers-MIN_NUM_FORMS': '0', 'tiers-MAX_NUM_FORMS': '1000',
+            'usages-TOTAL_FORMS': '0', 'usages-INITIAL_FORMS': '0',
+            'usages-MIN_NUM_FORMS': '0', 'usages-MAX_NUM_FORMS': '1000',
+            '_save': 'Save',
+        }
+        for index, row in enumerate(rows):
+            for key, value in row.items():
+                payload[f'tiers-{index}-{key}'] = str(value)
+        return payload
+
+    def test_admin_creates_default_quantity_tiers(self):
+        response = self.client.post(reverse('admin:orders_promocode_add'), self.tiered_payload())
+        self.assertEqual(response.status_code, 302)
+        promo = PromoCode.objects.get(code='TIERS')
+        self.assertIsNone(promo.value)
+        self.assertEqual(list(promo.tiers.values_list('min_quantity', 'percent')), [
+            (1, Decimal('10.00')), (2, Decimal('15.00')), (3, Decimal('20.00')),
+        ])
+
+    def test_admin_creates_and_edits_custom_quantity_tiers(self):
+        response = self.client.post(reverse('admin:orders_promocode_add'), self.tiered_payload([
+            {'min_quantity': 2, 'percent': '12.50'}, {'min_quantity': 5, 'percent': '30.00'},
+        ]))
+        self.assertEqual(response.status_code, 302)
+        promo = PromoCode.objects.get(code='TIERS')
+        self.assertEqual(promo.tiers.count(), 2)
+        first, second = list(promo.tiers.all())
+        response = self.client.post(
+            reverse('admin:orders_promocode_change', args=[promo.pk]),
+            self.tiered_payload([
+                {'id': first.pk, 'min_quantity': 1, 'percent': '17.50'},
+                {'id': second.pk, 'min_quantity': 4, 'percent': '40.00'},
+            ], initial=2),
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(list(promo.tiers.values_list('min_quantity', 'percent')), [
+            (1, Decimal('17.50')), (4, Decimal('40.00')),
+        ])
+
+    def test_admin_rejects_invalid_or_duplicate_tiers(self):
+        for rows in [
+            [{'min_quantity': 0, 'percent': 10}],
+            [{'min_quantity': 1, 'percent': 101}],
+            [{'min_quantity': 1, 'percent': 0}],
+            [{'min_quantity': 1, 'percent': 10}, {'min_quantity': 1, 'percent': 15}],
+        ]:
+            with self.subTest(rows=rows):
+                response = self.client.post(reverse('admin:orders_promocode_add'), self.tiered_payload(rows))
+                self.assertEqual(response.status_code, 200)
+                self.assertFalse(PromoCode.objects.filter(code='TIERS').exists())
+
+    def test_admin_rejects_deleting_all_tiers(self):
+        promo = PromoCode.objects.create(code='TIERS', discount_type=PromoCode.DiscountType.TIERED)
+        tier = PromoCodeTier.objects.create(promo_code=promo, min_quantity=1, percent=10)
+        response = self.client.post(
+            reverse('admin:orders_promocode_change', args=[promo.pk]),
+            self.tiered_payload([
+                {'id': tier.pk, 'min_quantity': 1, 'percent': 10, 'DELETE': 'on'},
+            ], initial=1),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(promo.tiers.exists())
+
+    def test_admin_flat_promo_still_requires_value(self):
+        payload = self.tiered_payload()
+        payload['discount_type'] = PromoCode.DiscountType.PERCENT
+        response = self.client.post(reverse('admin:orders_promocode_add'), payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(PromoCode.objects.filter(code='TIERS').exists())
 
     def create_order(self):
         cart = Cart.objects.create(user=self.user, token=None)
